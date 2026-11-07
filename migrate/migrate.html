@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <script src="/assets/js/accent.js?v=11"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Convert a Project - Nookara</title>
+<meta name="description" content="Convert a Scratch project from the old Nookara extension to Nookara Login and the add-ons it uses. Runs in your browser.">
+<meta name="robots" content="noindex">
+<link rel="icon" type="image/png" href="/assets/icon.png">
+<link rel="stylesheet" href="/assets/css/shared-nav.css?v=20261106-roboto">
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  :root { --bg: #0e0e10; --card: #151517; --surface: #1a1a1d; --surface-3: #212125; --border: #292930; --border-2: #35353d;
+    --text: #e7e7ea; --mid: #a1a1aa; --dim: #71717a; --accent: #9d8ad1; --ext: #7c3aed; --ext-dark: #5b21b6; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: 'Roboto', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 15px; line-height: 1.7; -webkit-font-smoothing: antialiased; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code { font: 13px Consolas, "Cascadia Code", monospace; background: var(--surface-3); border: 1px solid var(--border); padding: 1px 5px; color: #d4d4d8; overflow-wrap: anywhere; }
+  main { max-width: 820px; margin: 0 auto; padding: 40px 20px 80px; }
+  .crumbs { font-size: 12.5px; color: var(--dim); margin-bottom: 18px; }
+  .crumbs a { color: var(--mid); }
+  article { background: var(--card); border: 1px solid var(--border); padding: 40px 44px 44px; }
+  @media (max-width: 640px) { article { padding: 24px 18px 28px; } }
+  .kicker { font-size: 11px; font-weight: 700; letter-spacing: 1.6px; text-transform: uppercase; color: var(--accent); }
+  h1 { font-size: clamp(26px, 5vw, 34px); line-height: 1.2; letter-spacing: -.5px; margin: 8px 0 14px; }
+  h2 { font-size: 18px; margin: 36px 0 10px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+  p, li { color: var(--mid); }
+  p b, li b { color: var(--text); }
+  .lead { font-size: 17px; color: var(--text); opacity: .9; }
+  ul, ol { padding-left: 22px; }
+  li { margin: 6px 0; }
+  .steps li::marker { color: var(--accent); font-weight: 700; }
+  .feats { list-style: none; padding: 0; display: grid; gap: 8px; }
+  .feats li { margin: 0; padding: 10px 14px; background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--accent); }
+  .callout { background: rgba(255,255,255,.03); border: 1px solid var(--border); border-left: 3px solid var(--accent); padding: 14px 16px; margin: 14px 0; font-size: 14px; color: var(--mid); }
+  .callout strong { display: block; color: var(--text); margin-bottom: 4px; }
+  .blks { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin: 14px 0; padding: 14px; background: var(--surface); border: 1px solid var(--border); overflow-x: auto; }
+  .blk { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 5px; padding: 7px 10px; background: var(--ext); border: 1px solid var(--ext-dark); color: #fff; font: 600 13px/1.3 "Helvetica Neue", Helvetica, Arial, sans-serif; }
+  .blk i { font-style: normal; font-weight: 500; background: #fff; color: #575e75; padding: 2px 8px; border: 1px solid var(--ext-dark); }
+  .blk.hat { border-top: 4px solid #a78bfa; padding-top: 9px; }
+  .blk.boolean::before, .blk.boolean::after { content: "<"; opacity: .6; }
+  .blk.boolean::after { content: ">"; }
+  .blk.reporter { background: #6d28d9; }
+  .faq details { border: 1px solid var(--border); background: var(--surface); margin: 8px 0; }
+  .faq summary { cursor: pointer; padding: 11px 14px; font-weight: 600; color: var(--text); }
+  .faq details p { margin: 0; padding: 0 14px 12px; }
+  .cta { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 34px; padding-top: 22px; border-top: 1px solid var(--border); }
+  .btn { display: inline-flex; align-items: center; gap: 8px; padding: 10px 16px; border: 1px solid var(--accent); background: var(--accent); color: #16141c; font-weight: 600; font-size: 14px; }
+  .btn:hover { text-decoration: none; filter: brightness(1.08); }
+  .btn.ghost { background: transparent; color: var(--text); border-color: var(--border-2); }
+  .more { margin-top: 28px; }
+  .more h2 { font-size: 15px; }
+  .gcards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; margin-top: 22px; }
+  .gcard { display: flex; flex-direction: column; gap: 6px; padding: 16px; background: var(--surface); border: 1px solid var(--border); color: var(--text); }
+  .gcard:hover { border-color: var(--accent); text-decoration: none; }
+  .gcard .k { font-size: 10px; font-weight: 700; letter-spacing: 1.3px; text-transform: uppercase; color: var(--accent); }
+  .gcard span:last-child { font-size: 13px; color: var(--mid); line-height: 1.5; }
+</style>
+<style>
+  .drop { display: block; border: 1px dashed var(--border-2); background: var(--surface); padding: 26px; text-align: center; cursor: pointer; margin: 18px 0; }
+  .drop:hover, .drop.over { border-color: var(--accent); }
+  .drop input { display: block; margin: 12px auto 0; }
+  #out { min-height: 24px; }
+  #out .bad { color: #f08a8a; }
+  #out ul { padding-left: 20px; }
+</style>
+</head>
+<body>
+<div id="nav-mount"></div>
+<main>
+  <nav class="crumbs"><a href="/">Nookara</a> / <a href="/guides">Guides</a></nav>
+  <article>
+    <div class="kicker">Extensions</div>
+    <h1>Convert a project</h1>
+    <p class="lead">Moves a project from the old Nookara extension to <a href="/guides/nookara-extensions">Nookara Login and the add-ons</a> it uses. It runs in your browser and nothing gets uploaded. Your original file isn't changed.</p>
+    <label class="drop" id="drop">Choose or drop a project (.sb3, .ptf or .pmp)
+      <input type="file" id="file" accept=".sb3,.ptf,.pmp,.zip">
+    </label>
+    <div id="out" role="status" aria-live="polite"></div>
+  </article>
+</main>
+<script src="/assets/js/shared-nav.js?v=20261106-staffcount"></script>
+<script src="/assets/extensions/jszip.min.js"></script>
+<script src="/assets/extensions/migrate-core.js"></script>
+<script>
+(function () {
+  var out = document.getElementById('out'), drop = document.getElementById('drop');
+  function say(text, bad) { out.textContent = ''; var p = document.createElement('p'); p.textContent = text; if (bad) p.className = 'bad'; out.appendChild(p); return p; }
+  async function convert(file) {
+    if (!file) return;
+    say('Converting...');
+    try {
+      var map = await (await fetch('/assets/extensions/block-map.json', { cache: 'no-cache' })).json();
+      var zip = await JSZip.loadAsync(file);
+      var entry = zip.file('project.json');
+      if (!entry) return say("That file doesn't look like a project: it has no project.json.", true);
+      var project = JSON.parse(await entry.async('string'));
+      var result = NookaraMigrate.migrateProject(project, map);
+      if (result.none) return say("This project doesn't use the old Nookara extension, so there's nothing to convert.");
+      if (!result.ok) return say("These blocks aren't in the new extensions, so nothing was converted: " + result.unknown.join(', '), true);
+      zip.file('project.json', JSON.stringify(project));
+      var blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
+      var dot = file.name.lastIndexOf('.');
+      var name = (dot > 0 ? file.name.slice(0, dot) : file.name) + ' (split)' + (dot > 0 ? file.name.slice(dot) : '.sb3');
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob); a.download = name; a.className = 'btn'; a.textContent = 'Download ' + name;
+      var p = say('Done. Moved ' + result.changed + ' blocks. This project now uses:');
+      var ul = document.createElement('ul');
+      result.used.forEach(function (key) { var li = document.createElement('li'); li.textContent = map.modules[key].id; ul.appendChild(li); });
+      out.appendChild(ul); out.appendChild(a);
+    } catch (error) { say('That file could not be converted: ' + error.message, true); }
+  }
+  document.getElementById('file').addEventListener('change', function (e) { convert(e.target.files[0]); });
+  drop.addEventListener('dragover', function (e) { e.preventDefault(); drop.classList.add('over'); });
+  drop.addEventListener('dragleave', function () { drop.classList.remove('over'); });
+  drop.addEventListener('drop', function (e) { e.preventDefault(); drop.classList.remove('over'); convert(e.dataTransfer.files[0]); });
+})();
+</script>
+</body>
+</html>
