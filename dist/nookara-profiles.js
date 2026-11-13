@@ -45,6 +45,7 @@
           { blockType: Scratch.BlockType.LABEL, text: 'Look up a user' },
           { opcode: 'lookupUser', blockType: Scratch.BlockType.COMMAND, text: 'look up [USER]', arguments: { USER: { type: Scratch.ArgumentType.STRING, defaultValue: 'username' } } },
           { opcode: 'lookedUpUsername', blockType: Scratch.BlockType.REPORTER, text: 'their username' },
+          { opcode: 'lookedUpDisplayName', blockType: Scratch.BlockType.REPORTER, text: 'their display name' },
           { opcode: 'lookedUpRank', blockType: Scratch.BlockType.REPORTER, text: 'their rank' },
           { opcode: 'lookedUpBio', blockType: Scratch.BlockType.REPORTER, text: 'their bio' },
           { opcode: 'lookedUpPronouns', blockType: Scratch.BlockType.REPORTER, text: 'their pronouns' },
@@ -164,6 +165,9 @@
 
     _handleWS(msg) {
       switch (msg.type) {
+        // Instant Messages
+        // an admin changed which services this account can use (applies right away)
+        // achievements (granted from any of your apps - the launcher pops them up)
         case 'achievement_unlocked':
           if (msg.achievement?.id) {
             this._achievements[msg.achievement.id] = { ...(this._achievements[msg.achievement.id] || {}), ...msg.achievement, unlocked: true };
@@ -175,6 +179,7 @@
         case 'achievement_revoked':
           if (this._achievements[msg.id]) this._achievements[msg.id] = { ...this._achievements[msg.id], unlocked: false, unlockedAt: null };
           break;
+        // ── Nookara Voice ──
       }
     }
     async _fetchBadges() {
@@ -198,20 +203,27 @@
     loginHistoryCount() { this._requireScope(SCOPES.PROFILE_SENSITIVE); return this._loginHistory.length; }
     loginHistoryJSON()  { this._requireScope(SCOPES.PROFILE_SENSITIVE); return JSON.stringify(this._loginHistory); }
     lastLoginDevice()   { this._requireScope(SCOPES.PROFILE_SENSITIVE); return this._loginHistory[0]?.browser_ua || ''; }
+    // this isn't actually ur real ip!! its a hashed version, we don't keep raw ips
+    // around anymore for privacy reasons. still useful for "is this the same
+    // location as last time" type checks tho, just cant reverse it back into an ip
     lastLoginIP()       { this._requireScope(SCOPES.PROFILE_SENSITIVE); return this._loginHistory[0]?.ip_hash || ''; }
     async lookupUser({ USER }) {
       const data = await this._cmd(`/account/lookup/${encodeURIComponent(USER)}`);
       this._lookedUpUser = data;
+      // Hyperfocus: what they're playing + playtime (only games that are in the launcher right now)
       this._lookedUpHF = await this._http(`/hyperfocus/profile/${encodeURIComponent(USER)}`).catch(() => ({})) || {};
+      // Badge Arcade: unlocked badges + where they sit on the profile
       this._lookedUpArcade = await this._http(`/arcade/profile/${encodeURIComponent(USER)}`).catch(() => ({})) || {};
     }
     lookedUpUsername() { return this._lookedUpUser.username || ''; }
+    lookedUpDisplayName() { return this._lookedUpUser.display_name || this._lookedUpUser.username || ''; }
     lookedUpRank()     { return this._lookedUpUser.rank || ''; }
     lookedUpBio()      { return this._lookedUpUser.bio || ''; }
     lookedUpPronouns() { return this._lookedUpUser.pronouns || ''; }
     lookedUpPfp()      { return this._lookedUpUser.pfp_url || ''; }
     lookedUpCountry()  { return this._lookedUpUser.country_code || ''; }
     lookedUpJSON()     { return JSON.stringify(this._lookedUpUser); }
+    // Hyperfocus launcher blocks
     _hfGame(game) {
       const q = Scratch.Cast.toString(game).trim().toLowerCase();
       return (this._lookedUpHF?.games || []).find(g => g.id.toLowerCase() === q || g.name.toLowerCase() === q);
@@ -221,6 +233,8 @@
     lookedUpIsPlaying() { return !!this._lookedUpHF?.playing; }
     lookedUpPlaytime({ GAME }) { const g = this._hfGame(GAME); return g ? Math.round(g.seconds / 36) / 100 : 0; }
     lookedUpGames()     { return JSON.stringify(this._lookedUpHF?.games || []); }
+    // Badge Arcade. Profile badge positions: x = centre as a fraction (0-1) of the profile's
+    // width, y = centre in pixels from the top of the profile, size = width/height in pixels.
     _arcadeCollection() { return Array.isArray(this._lookedUpArcade?.collection) ? this._lookedUpArcade.collection : []; }
     _arcadeBoard()      { return Array.isArray(this._lookedUpArcade?.board) ? this._lookedUpArcade.board : []; }
     _arcadeFind(name)   { const q = Scratch.Cast.toString(name).trim().toLowerCase(); return this._arcadeCollection().find(b => b.name.toLowerCase() === q || Scratch.Cast.toString(b.id) === q); }
@@ -261,6 +275,10 @@
         this._loginHistory = history;
       }
     }
+    // ── admin restrictions ─────────────────────────────────────────────────────
+    // ── achievements ──────────────────────────────────────────────────────────
+    // get achievements -> { "<id>": { name, description, icon, rarity, hidden, game, gameName, unlocked, unlockedAt } }
+    // (hidden ones you don't have yet read "Hidden Achievement" / "Earn this to view it!")
     async _loadAchievements() {
       this._requireScope(SCOPES.PROFILE_READ);
       const data = await this._cmd('/achievements');
@@ -289,6 +307,8 @@
     lastAchievement() { return this._lastAchievement ? JSON.stringify(this._lastAchievement) : '{}'; }
   }
 
+  // copy pasted from auth.js's SCOPES obj, gotta keep these two in sync by hand
+  // since this file can't just require() the server code lol
   const SCOPES = {
     PROFILE_READ: 1,
     PROFILE_SENSITIVE: 2,
@@ -296,7 +316,7 @@
     ACCOUNT_WRITE: 8,
     STORAGE_READ: 16,
     STORAGE_WRITE: 32,
-    VMAIL_READ: 64,
+    VMAIL_READ: 64,   // Instant Messages (was vMail, same bits so old tokens still work)
     VMAIL_SEND: 128,
     FRIENDS_READ: 256,
     FRIENDS_MANAGE: 512,
@@ -304,10 +324,11 @@
     CHAT: 2048,
     MEDIA_UPLOAD: 4096,
     CURRENCY_READ: 8192,
-    VOICE: 16384,
+    VOICE: 16384,     // Nookara Voice (voice rooms + calling people into them)
     SIGN_MESSAGES: 32768,
   };
   const p19 = NookaraExtension.prototype;
+  // Nookara continues to carry identity/presence/IM/DM-call events, never community chat.
   const identityEvents19 = p19._handleWS;
   p19._handleWS = function (frame) {
     if (['globalMessage', 'roomMessage', 'globalMessages', 'roomMessages'].includes(frame.type)) return;

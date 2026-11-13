@@ -1,4 +1,6 @@
 'use strict';
+// writes a small project that uses the core and every add-on, so you can open it in TurboWarp or PenguinMod and click the flag.
+// run: node make-sample.js [output.sb3] [url base, defaults to where they get published]
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -12,6 +14,7 @@ const ids = { ...Object.fromEntries(Object.entries(MODULES).map(([k, m]) => [k, 
 const SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2"/>';
 const svgName = crypto.createHash('md5').update(SVG).digest('hex');
 
+// each one sets a variable from a reporter, so the result is easy to read back
 const checks = [
   ['login', 'serverOnline'],
   ['login', 'extensionVersion'],

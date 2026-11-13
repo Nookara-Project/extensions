@@ -138,6 +138,7 @@
           { opcode: 'removeFriend', blockType: Scratch.BlockType.COMMAND, text: 'remove friend [USER]', arguments: { USER: { type: Scratch.ArgumentType.STRING, defaultValue: 'username' } } },
           { opcode: 'whenFriendRequest', blockType: Scratch.BlockType.HAT, text: 'when I get a friend request' },
           { opcode: 'whenFriendAccepted', blockType: Scratch.BlockType.HAT, text: 'when my friend request is accepted' },
+          { opcode: 'cancelFriendRequest', blockType: Scratch.BlockType.COMMAND, text: 'cancel friend request to [USER]', arguments: { USER: { type: Scratch.ArgumentType.STRING, defaultValue: 'username' } } },
           { opcode: 'getFriendRequests', blockType: Scratch.BlockType.REPORTER, text: 'friend requests' },
           { opcode: 'getFriendStatus', blockType: Scratch.BlockType.REPORTER, text: 'friend status with [USER]', arguments: { USER: { type: Scratch.ArgumentType.STRING, defaultValue: 'username' } } },
           { opcode: 'getFriendCount', blockType: Scratch.BlockType.REPORTER, text: 'friend count' },
@@ -147,6 +148,17 @@
           { opcode: 'isUserBlocked', blockType: Scratch.BlockType.BOOLEAN, text: 'is [USER] blocked?', arguments: { USER: { type: Scratch.ArgumentType.STRING, defaultValue: 'username' } } },
           { opcode: 'setDmPrivacy', blockType: Scratch.BlockType.COMMAND, text: 'set who can DM me to [WHO]', arguments: { WHO: { type: Scratch.ArgumentType.STRING, menu: 'dmPrivacyOptions', defaultValue: 'everyone' } } },
           { opcode: 'getDmPrivacy', blockType: Scratch.BlockType.REPORTER, text: 'who can DM me' },
+          { blockType: Scratch.BlockType.LABEL, text: 'Inbox and saved' },
+          { opcode: 'inboxMentions', blockType: Scratch.BlockType.REPORTER, text: 'my mentions as JSON (limit [LIMIT] before message [BEFORE])', arguments: { LIMIT: { type: Scratch.ArgumentType.NUMBER, defaultValue: 30 }, BEFORE: { type: Scratch.ArgumentType.STRING, defaultValue: '' } } },
+          { opcode: 'savedMessages', blockType: Scratch.BlockType.REPORTER, text: 'saved messages as JSON (limit [LIMIT] before saved id [BEFORE])', arguments: { LIMIT: { type: Scratch.ArgumentType.NUMBER, defaultValue: 50 }, BEFORE: { type: Scratch.ArgumentType.STRING, defaultValue: '' } } },
+          { opcode: 'saveMessage', blockType: Scratch.BlockType.COMMAND, text: 'save [KIND] message [ID]', arguments: { KIND: { type: Scratch.ArgumentType.STRING, menu: 'savedKinds', defaultValue: 'channel' }, ID: { type: Scratch.ArgumentType.STRING, defaultValue: '' } } },
+          { opcode: 'saveGroupMessage', blockType: Scratch.BlockType.COMMAND, text: 'save group message from JSON [SNAPSHOT]', arguments: { SNAPSHOT: { type: Scratch.ArgumentType.STRING, defaultValue: '{"room":"grp_","room_name":"","user":"","message":"","created_at":0,"id":""}' } } },
+          { opcode: 'unsaveMessage', blockType: Scratch.BlockType.COMMAND, text: 'unsave saved message [SAVEDID]', arguments: { SAVEDID: { type: Scratch.ArgumentType.STRING, defaultValue: '' } } },
+          { opcode: 'savedIdOfMessage', blockType: Scratch.BlockType.REPORTER, text: 'saved id of [KIND] message [ID] (empty if not saved)', arguments: { KIND: { type: Scratch.ArgumentType.STRING, menu: 'savedKinds', defaultValue: 'channel' }, ID: { type: Scratch.ArgumentType.STRING, defaultValue: '' } } },
+          { opcode: 'translateText', blockType: Scratch.BlockType.REPORTER, text: 'translate [TEXT] to [LANG]', arguments: { TEXT: { type: Scratch.ArgumentType.STRING, defaultValue: 'Bonjour!' }, LANG: { type: Scratch.ArgumentType.STRING, defaultValue: 'en' } } },
+          { blockType: Scratch.BlockType.LABEL, text: 'Ember Beta' },
+          { opcode: 'emberBetaStatus', blockType: Scratch.BlockType.REPORTER, text: 'Ember Beta status as JSON' },
+          { opcode: 'hasEmberBeta', blockType: Scratch.BlockType.BOOLEAN, text: 'do I have Ember Beta?' },
           { blockType: Scratch.BlockType.LABEL, text: 'Notifications' },
           { opcode: 'whenNotificationReceived', blockType: Scratch.BlockType.HAT, text: 'when I get a notification' },
           { opcode: 'notificationCount', blockType: Scratch.BlockType.REPORTER, text: 'notification count' },
@@ -155,6 +167,7 @@
           { opcode: 'clearNotifications', blockType: Scratch.BlockType.COMMAND, text: 'clear notifications' },
           { opcode: 'lastNotificationTitle', blockType: Scratch.BlockType.REPORTER, text: 'last notification title' },
           { opcode: 'lastNotificationBody', blockType: Scratch.BlockType.REPORTER, text: 'last notification text' },
+          { opcode: 'sendNotificationToMe', blockType: Scratch.BlockType.COMMAND, text: 'send me a notification [TITLE] saying [BODY]', arguments: { TITLE: { type: Scratch.ArgumentType.STRING, defaultValue: 'Your toast is ready' }, BODY: { type: Scratch.ArgumentType.STRING, defaultValue: 'Come back and eat it.' } } },
       ];
       if (!this._coreApi()) blocks.unshift({ func: '_addCore', blockType: Scratch.BlockType.BUTTON, text: 'Add Nookara Login' });
       return {
@@ -169,6 +182,7 @@
           activityTypes: { acceptReporters: false, items: ['playing', 'listening', 'watching', 'competing', 'streaming', 'custom'] },
           statusMenu: { acceptReporters: false, items: ['online', 'idle', 'dnd', 'invisible'] },
           dmPrivacyOptions: { acceptReporters: true, items: ['everyone', { text: 'friends', value: 'friends only' }, { text: 'server members', value: 'members in my servers' }] },
+          savedKinds: { acceptReporters: false, items: ['channel', 'dm'] },
         },
       };
     }
@@ -280,17 +294,19 @@
         case 'onlinePlayers':
           this._onlinePlayers = msg.players;
           break;
+        // Instant Messages
         case 'im_received': {
           const m = msg.message || {};
           this._lastIM = m;
           this._imUnread++;
-          this._evtMailReceived = true;
+          this._evtMailReceived = true; // old 'when vMail received' hat
           this._evtIMReceived = true;
           this._evtIMFromMap[Scratch.Cast.toString(m.from || '').toLowerCase()] = true;
           if (Array.isArray(this._mail)) this._mail.unshift({ ...m, from_username: m.from, subject: '' });
           break;
         }
         case 'im_unread':
+          // messages that came in while we were offline - they're in the db, go get them
           this._imUnread = Number(msg.count) || 0;
           if (this._imUnread > 0) this._fetchMail();
           break;
@@ -303,6 +319,7 @@
           break;
         }
         case 'mail_received':
+          // legacy duplicate of im_received, server still sends it for old clients
           break;
         case 'friend_request':
           this._evtFriendRequest = true;
@@ -316,6 +333,9 @@
         case 'friend_offline':
           this._fetchFriends();
           break;
+        // an admin changed which services this account can use (applies right away)
+        // achievements (granted from any of your apps - the launcher pops them up)
+        // ── Nookara Voice ──
       }
     }
     _getOnlinePlayers() {
@@ -365,6 +385,7 @@
       return JSON.stringify(obj);
     }
     notificationCount()     { return this._notifications.length; }
+    // the number on the bell, asked fresh each time (GET /account/notifications/unread-count)
     async unreadNotificationCount() {
       if (!this._token) return 0;
       const data = await this._http('/account/notifications/unread-count').catch(() => ({}));
@@ -392,16 +413,29 @@
       this._status = STATUS;
       this._wsSend({ type: 'set_status', status: STATUS });
     }
-    async sendIM() {
+    // DMs are end-to-end encrypted, and a project can't keep keys safe (its storage is shared with whatever else runs on that site), so these blocks say so
+    // DMs with people are end-to-end encrypted, but DMs with BOTS never are: send those as plain text (POST /im/send {to, message}).
+    // The server answers e2ee_required for a person, and then the block says why it can't.
+    async sendIM({ TO, MSG } = {}) {
       this._requireScope(SCOPES.VMAIL_SEND);
-      return this._dmsEncrypted();
+      const to = Scratch.Cast.toString(TO).trim();
+      if (!to) throw new Error('Enter who to message.');
+      this._lastActionSuccess = false;
+      const data = await this._http('/im/send', 'POST', { to, message: Scratch.Cast.toString(MSG) });
+      this._lastActionOutput = JSON.stringify(data);
+      if (data.error === 'e2ee_required') return this._dmsEncrypted();
+      if (data.error) throw (this._scopeErrorFromData(data) || new Error(data.message || data.error));
+      this._lastActionSuccess = !!data.success;
+      this._lastIMDelivered = !!data.delivered;
+      return data;
     }
     lastIMSender()    { return this._lastIM?.from || ''; }
     lastIMContent()   { return this._lastIM?.body || ''; }
     lastIMStatusReply() { return this._lastIM?.status_reply?.text || ''; }
+    // answers their CURRENT custom status (looked up first; the server refuses it if it changed or you can't DM them)
     _dmsEncrypted() {
       this._lastActionSuccess = false;
-      throw new Error('Direct messages are end-to-end encrypted now, and a project cannot keep keys safe. People can message each other in Ember.');
+      throw new Error('Direct messages are end-to-end encrypted now, and a project cannot keep keys safe. People can message each other in Ember. Bots can be messaged from here: DMs with bots are plain text.');
     }
     async replyToStatus() {
       this._requireScope(SCOPES.VMAIL_SEND);
@@ -450,6 +484,7 @@
       await this._cmd(`/im/${id}`, 'DELETE');
       if (Array.isArray(this._mail)) this._mail = this._mail.filter(m => m.id !== id);
     }
+    // legacy vMail block - subject is ignored now
     async sendMail({ TO, MSG }) {
       return this.sendIM({ TO, MSG });
     }
@@ -495,6 +530,62 @@
       await this._cmd(`/friends/${encodeURIComponent(USER)}`, 'DELETE');
       await this._fetchFriends();
     }
+    // takes back a request I sent that nobody answered yet. the id comes from the outgoing list
+    async cancelFriendRequest({ USER }) {
+      this._requireScope(SCOPES.FRIENDS_MANAGE);
+      this._requireScope(SCOPES.FRIENDS_READ);
+      const name = Scratch.Cast.toString(USER).trim().toLowerCase();
+      const list = await this._http('/friends/requests');
+      if (list.error) throw (this._scopeErrorFromData(list) || new Error(list.error));
+      const req = (list.outgoing || []).find(r => String(r.to_username).toLowerCase() === name);
+      if (!req) return;
+      await this._cmd(`/friends/request/${encodeURIComponent(req.id)}`, 'DELETE');
+    }
+    // Ember's Inbox. these need Chat; saving or listing a DM also needs Read Instant Messages
+    async inboxMentions({ LIMIT, BEFORE }) {
+      const q = new URLSearchParams({ limit: String(Math.min(Math.max(Math.floor(Scratch.Cast.toNumber(LIMIT)) || 30, 1), 50)) });
+      if (Scratch.Cast.toString(BEFORE).trim()) q.set('before', Scratch.Cast.toString(BEFORE).trim());
+      return JSON.stringify(await this._bfRequest(`/chat/inbox/mentions?${q}`));
+    }
+    async savedMessages({ LIMIT, BEFORE }) {
+      const q = new URLSearchParams({ limit: String(Math.min(Math.max(Math.floor(Scratch.Cast.toNumber(LIMIT)) || 50, 1), 100)) });
+      if (Scratch.Cast.toString(BEFORE).trim()) q.set('before', Scratch.Cast.toString(BEFORE).trim());
+      return JSON.stringify(await this._bfRequest(`/chat/saved?${q}`));
+    }
+    async saveMessage({ KIND, ID }) {
+      const kind = Scratch.Cast.toString(KIND) === 'dm' ? 'dm' : 'channel';
+      if (kind === 'dm') this._requireScope(SCOPES.VMAIL_READ);
+      await this._bfRequest('/chat/saved', 'POST', { kind, id: Scratch.Cast.toString(ID).trim() });
+    }
+    async saveGroupMessage({ SNAPSHOT }) {
+      let snapshot;
+      try { snapshot = JSON.parse(Scratch.Cast.toString(SNAPSHOT)); } catch { throw new Error('Enter valid JSON.'); }
+      await this._bfRequest('/chat/saved', 'POST', { kind: 'group', snapshot });
+    }
+    async unsaveMessage({ SAVEDID }) {
+      await this._bfRequest(`/chat/saved/${encodeURIComponent(Scratch.Cast.toString(SAVEDID).trim())}`, 'DELETE');
+    }
+    async savedIdOfMessage({ KIND, ID }) {
+      const kind = Scratch.Cast.toString(KIND) === 'dm' ? 'dm' : 'channel';
+      const id = Scratch.Cast.toString(ID).trim();
+      if (!id) return '';
+      const data = await this._bfRequest('/chat/saved/check', 'POST', { kind, ids: [id] });
+      return (data.saved && data.saved[id]) || '';
+    }
+    async translateText({ TEXT, LANG }) {
+      const data = await this._bfRequest('/chat/translate', 'POST', { text: Scratch.Cast.toString(TEXT), to: Scratch.Cast.toString(LANG).trim() || 'en' });
+      return data.text || '';
+    }
+    // Ember Beta: needs Chat. beta is true only with a running Ember Beta membership (selling the product doesn't count)
+    async emberBetaStatus() {
+      const data = await this._bfRequest('/chat/beta');
+      return JSON.stringify({ beta: !!data.beta, membership: data.membership || null, product: data.product || null });
+    }
+    async hasEmberBeta() {
+      const data = await this._bfRequest('/chat/beta');
+      return !!data.beta;
+    }
+    // blocking: a blocked pair can't message, call, pay or friend each other; blocking also ends any friendship
     async blockUser({ USER }) {
       this._requireScope(SCOPES.FRIENDS_MANAGE);
       await this._cmd('/account/blocks', 'POST', { username: String(USER) });
@@ -517,6 +608,7 @@
       const data = await this._http('/account/blocks').catch(() => ({}));
       return (data.blocks || []).some(b => String(b.username).toLowerCase() === name);
     }
+    // "who can DM me": everyone | friends only | members in my servers (friends count as members). Staff always get through.
     async setDmPrivacy({ WHO }) {
       this._requireScope(SCOPES.CHAT);
       const w = String(WHO).trim().toLowerCase();
@@ -542,6 +634,11 @@
       this._lastNotifTitle = '';
       this._lastNotifBody = '';
     }
+    // signed in through an App with Send Notifications: a notification to the person signed in, under "From apps"
+    // (POST /account/notifications/send: 10 an hour, 50 a day)
+    async sendNotificationToMe({ TITLE, BODY }) {
+      await this._cmd('/account/notifications/send', 'POST', { title: Scratch.Cast.toString(TITLE), body: Scratch.Cast.toString(BODY) });
+    }
     async _fetchNotifications() {
       if (!this._token) return;
       const data = await this._http('/notifications').catch(() => ({}));
@@ -555,6 +652,8 @@
     }
   }
 
+  // copy pasted from auth.js's SCOPES obj, gotta keep these two in sync by hand
+  // since this file can't just require() the server code lol
   const SCOPES = {
     PROFILE_READ: 1,
     PROFILE_SENSITIVE: 2,
@@ -562,7 +661,7 @@
     ACCOUNT_WRITE: 8,
     STORAGE_READ: 16,
     STORAGE_WRITE: 32,
-    VMAIL_READ: 64,
+    VMAIL_READ: 64,   // Instant Messages (was vMail, same bits so old tokens still work)
     VMAIL_SEND: 128,
     FRIENDS_READ: 256,
     FRIENDS_MANAGE: 512,
@@ -570,7 +669,7 @@
     CHAT: 2048,
     MEDIA_UPLOAD: 4096,
     CURRENCY_READ: 8192,
-    VOICE: 16384,
+    VOICE: 16384,     // Nookara Voice (voice rooms + calling people into them)
     SIGN_MESSAGES: 32768,
   };
   const VELORA_ROUTES = [
@@ -1338,6 +1437,7 @@
     this._imUnread = this._mail.filter(m => !m.read).length;
   };
   const p19 = NookaraExtension.prototype;
+  // Nookara continues to carry identity/presence/IM/DM-call events, never community chat.
   const identityEvents19 = p19._handleWS;
   p19._handleWS = function (frame) {
     if (['globalMessage', 'roomMessage', 'globalMessages', 'roomMessages'].includes(frame.type)) return;

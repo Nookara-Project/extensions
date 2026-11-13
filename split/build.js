@@ -1,4 +1,6 @@
 'use strict';
+// builds extensions/dist/nookara-*.js out of ../../velora_extension.js + manifest.js, so theres still only one file to edit.
+// run: node build.js  (npm i first, it only needs acorn). see README.md
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
@@ -6,7 +8,7 @@ const acorn = require('acorn');
 const { CORE_ID, HOSTED, MODULES, SHARED, FORWARD, WS_CASES, moduleFor } = require('./manifest');
 const { TEXT, LABELS, MENUS } = require('./plain-words');
 
-const ROOT = path.join(__dirname, '..');
+const ROOT = path.join(__dirname, '..', '..');
 const OUT = path.join(__dirname, '..', 'dist');
 const read = file => fs.readFileSync(file, 'utf8').replace(/\r\n/g, '\n');
 const SOURCE = read(path.join(ROOT, 'velora_extension.js'));
@@ -16,6 +18,7 @@ const fail = msg => errors.push(msg);
 const BLOCK_TYPES = { COMMAND: 'command', REPORTER: 'reporter', BOOLEAN: 'Boolean', HAT: 'hat', EVENT: 'event', LABEL: 'label', BUTTON: 'button', CONDITIONAL: 'conditional', LOOP: 'loop', XML: 'xml' };
 const ARG_TYPES = { ANGLE: 'angle', BOOLEAN: 'Boolean', COLOR: 'color', NUMBER: 'number', STRING: 'string', MATRIX: 'matrix', NOTE: 'note', IMAGE: 'image' };
 
+// run the real file against a stub and take the finished palette, since getInfo gets patched five times over
 function readPalette() {
   let ext;
   const Scratch = { BlockType: BLOCK_TYPES, ArgumentType: ARG_TYPES, TargetType: { SPRITE: 'sprite', STAGE: 'stage' }, Cast: { toString: String, toNumber: Number, toBoolean: Boolean }, vm: { runtime: { on() {}, startHats() {} } }, extensions: { register(e) { ext = e; }, unsandboxed: true }, translate: s => s };
@@ -160,6 +163,7 @@ function buildModule(key, palette) {
     return edits;
   };
 
+  // ---- pull apart the file into things that can be kept or left out ----
   const items = [];
   const layers = {};
   const layer = name => { layers[name] = (layers[name] ?? -1) + 1; return layers[name]; };
@@ -234,10 +238,11 @@ function buildModule(key, palette) {
     if (s.type === 'ForOfStatement' && /^for \(const (spec of nativeSpecs|entry of instanceBlocks|opcode of \['bfPlaySound')/.test(head)) { add('chatOnly', s); continue; }
     if (s.type === 'BlockStatement') { add('chatOnly', s); continue; }
     if (s.type === 'IfStatement' && text(s.test).endsWith('.callUser')) { add('gated', s, { name: 'callUser' }); continue; }
-    if (s.type === 'IfStatement' && text(s.test).endsWith('.getProfileNote')) continue;
+    if (s.type === 'IfStatement' && text(s.test).endsWith('.getProfileNote')) continue; // those blocks are gone, nothing registers them
     fail(`unknown top level statement: ${head}`);
   }
 
+  // a later definition replaces an earlier one unless something saved the earlier one first (the file wraps methods a lot)
   {
     const last = new Map();
     for (const item of items) {
@@ -251,12 +256,14 @@ function buildModule(key, palette) {
     }
   }
 
+  // ---- reachability ----
   const reach = new Set([...opcodes, ...(cfg.roots || []), 'runtime']);
   if (Object.values(WS_CASES).some(owners => owners.includes(key))) reach.add('_handleWS');
   for (const b of blocks) if (b.func) reach.add(b.func);
   for (const h of Object.values(cfg.hooks || {})) for (const m of h.matchAll(/this\.([A-Za-z_$][\w$]*)/g)) reach.add(m[1]);
   if ((cfg.init || '').length) for (const m of cfg.init.matchAll(/this\.([A-Za-z_$][\w$]*)/g)) reach.add(m[1]);
   const keptVars = new Set();
+  // lives in another add-on: the generated forwarders stand in for it here
   const peerOwned = new Set(Object.values(cfg.needsPeer || {}).flat());
   for (const p of Object.values(cfg.optionalPeer || {})) { p.methods.forEach(n => peerOwned.add(n)); p.accessors.forEach(n => peerOwned.add(n)); }
   const dropped = (name, layerNo) => {
@@ -282,6 +289,7 @@ function buildModule(key, palette) {
       default: return false;
     }
   };
+  // a shared route table: only the routes this extension owns
   const routesEdits = item => {
     const edits = [];
     const list = item.node.declarations[0].init.elements;
@@ -300,6 +308,7 @@ function buildModule(key, palette) {
     else if (item.kind === 'member' || item.kind === 'classMethod') item.edits = editsFor(item.node.value);
     else if (item.kind === 'ctor') item.edits = [];
     else item.edits = editsFor(item.node);
+    // the old block rewires a few methods, skip the ones that moved to another extension
     if (item.kind === 'chatOnly') {
       walk(item.node, child => {
         if (child.type === 'ExpressionStatement' && child.expression.type === 'CallExpression' && child.expression.callee.name === 'reroute' && !opcodes.has(child.expression.arguments[0].value)) { item.edits.push([child.start, child.end, '']); return false; }
@@ -338,6 +347,7 @@ function buildModule(key, palette) {
     }
   }
 
+  // ---- guard rails ----
   const defined = new Set([...on].map(i => i.name || i.field).filter(Boolean));
   const peerNames = new Set();
   for (const names of Object.values(cfg.needsPeer || {})) names.forEach(n => peerNames.add(n));
@@ -357,6 +367,7 @@ function buildModule(key, palette) {
     });
   }
 
+  // ---- write it out ----
   const render = (item, from = item.start, to = item.end) => {
     const edits = item.edits.slice().sort((a, b) => b[0] - a[0]);
     let out = source.slice(from, to);
@@ -396,6 +407,7 @@ function buildModule(key, palette) {
   return assemble(key, cfg, palette[key], { pieces, classMethods, ctorLines, tail, opcodes, removed, reachCount: on.size });
 }
 
+// ---- generated glue ----
 const blockType = v => 'Scratch.BlockType.' + Object.keys(BLOCK_TYPES).find(k => BLOCK_TYPES[k] === v);
 const argType = v => 'Scratch.ArgumentType.' + Object.keys(ARG_TYPES).find(k => ARG_TYPES[k] === v);
 const quote = v => "'" + String(v).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n') + "'";
@@ -625,6 +637,7 @@ const PALETTE = readPalette();
 const split = splitPalette(PALETTE);
 const results = Object.keys(MODULES).map(key => buildModule(key, split));
 
+// every block in exactly one place
 const seen = new Map();
 for (const r of results) for (const op of r.opcodes) { if (seen.has(op)) fail(`${op} is in both ${seen.get(op)} and ${r.key}`); seen.set(op, r.key); }
 const total = PALETTE.blocks.filter(b => b.opcode).length;
@@ -656,6 +669,6 @@ for (const r of results) {
 fs.copyFileSync(path.join(__dirname, 'forums.js'), path.join(OUT, 'nookara-forums.js'));
 report.push('nookara-forums.js: written by hand, read only, not part of the split');
 const map = JSON.stringify({ core: CORE_ID, modules: Object.fromEntries(results.map(r => [r.key, { id: r.cfg.id, file: r.cfg.file, url: `${HOSTED}/${r.cfg.file}` }])), blocks: Object.fromEntries([...seen].sort()) }) + '\n';
-fs.writeFileSync(path.join(ROOT, 'migrate', 'block-map.json'), map);
+fs.writeFileSync(path.join(ROOT, 'public', 'assets', 'extensions', 'block-map.json'), map);
 console.log(report.join('\n'));
 console.log(`all ${total} blocks placed`);

@@ -1,4 +1,4 @@
-// Nookara Scratch Extension v2.0.2 (Bonfire communities on Bonfire servers, Nookara identity + Instant Messages, status + rich presence, bot gallery)
+// Nookara Scratch Extension v2.0.10 (Bonfire communities on Bonfire servers, Nookara identity + Instant Messages, status + rich presence, bot gallery)
 // https://nookara.cc
 (function () {
   'use strict';
@@ -6,8 +6,10 @@
   const SERVER_HTTP = 'https://nookara.cc';
   const SERVER_WS   = 'wss://nookara.cc';
   const EXT_ID      = 'velora';
-  const EXTENSION_VERSION = '2.0.3';
+  const EXTENSION_VERSION = '2.0.10';
 
+  // copy pasted from auth.js's SCOPES obj, gotta keep these two in sync by hand
+  // since this file can't just require() the server code lol
   const SCOPES = {
     PROFILE_READ: 1,
     PROFILE_SENSITIVE: 2,
@@ -15,7 +17,7 @@
     ACCOUNT_WRITE: 8,
     STORAGE_READ: 16,
     STORAGE_WRITE: 32,
-    VMAIL_READ: 64,
+    VMAIL_READ: 64,   // Instant Messages (was vMail, same bits so old tokens still work)
     VMAIL_SEND: 128,
     FRIENDS_READ: 256,
     FRIENDS_MANAGE: 512,
@@ -23,7 +25,7 @@
     CHAT: 2048,
     MEDIA_UPLOAD: 4096,
     CURRENCY_READ: 8192,
-    VOICE: 16384,
+    VOICE: 16384,     // Nookara Voice (voice rooms + calling people into them)
     SIGN_MESSAGES: 32768,
   };
   const SCOPE_NAMES = {
@@ -44,10 +46,12 @@
     16384: 'Nookara Voice',
     32768: 'Sign Messages',
   };
+  // "is [service] disabled by an admin?" - the scope bits behind each service
   const SERVICE_BITS = {
     'instant messages': 64 | 128, 'group chat': 2048, 'voice': 16384, 'storage': 16 | 32,
     'media uploads': 4096, 'friends': 256 | 512, 'credits': 1024 | 8192, 'profile editing': 8,
   };
+  // Nookara Voice audio: raw 16-bit mono PCM @ 16 kHz, ~32 ms chunks (same as the voice server)
   const V_RATE = 16000;
   const V_CHUNK = 512;
 
@@ -71,23 +75,27 @@
       this._friends = [];
       this._friendRequests = [];
       this._mail = [];
-      this._lastIM = null;
-      this._lastIMDelivered = false;
+      // Instant Messages
+      this._lastIM = null;           // last message that came in
+      this._lastIMDelivered = false; // did our last sent message land live (recipient online)?
       this._imUnread = 0;
       this._imNonce = 0;
-      this._imPending = new Map();
+      this._imPending = new Map();   // nonce -> { resolve, reject } for im_send over the socket
       this._evtIMReceived = false;
       this._evtIMFromMap = {};
       this._wsAuthed = false;
       this._badges = [];
       this._callData = {};
       this._username = '';
+      // services an admin switched off for this account (users.disabled_scopes)
       this._disabledScopes = 0;
+      // achievements
       this._achievements = {};
       this._lastAchievement = null;
       this._evtAchievement = false;
+      // Nookara Voice - voice rooms over the Nookara socket (see the Nookara Voice section)
       this._v = this._vFresh();
-      this._rtc = null;
+      this._rtc = null; // Cloudflare SFU state for Nookara bf_/bfc_ rooms
       this._vAudio = null;
       this._vMaster = null;
       this._vGains = new Map();
@@ -100,13 +108,14 @@
       this._vMyVol = 0;
       this._vThreshold = 5;
       this._vGlobal = 100;
-      this._vUserSettings = new Map();
+      this._vUserSettings = new Map(); // name -> { volume, muted }
       this._vVolTimer = null;
       this._vJoinQ = []; this._vLeaveQ = []; this._vJoinFlip = false; this._vLeaveFlip = false;
       this._vEventUser = '';
-      this._vCall = null;
+      // calls into voice rooms
+      this._vCall = null;        // someone calling me: { callId, from, room }
       this._evtVoiceCalled = false;
-      this._vOutCall = null;
+      this._vOutCall = null;     // me calling someone: { callId, to }
       this._vCallResult = '';
       this._evtVoiceAnswered = false;
 
@@ -116,6 +125,7 @@
       this._loginInProgress = false;
       this._cancelPendingLogin = null;
 
+      // Event queues for hat blocks
       this._evtConnected = false;
       this._evtDisconnected = false;
       this._evtAuthenticated = false;
@@ -133,49 +143,58 @@
       this._lastUserJoined = '';
       this._lastUserLeft = '';
 
+      // Global chat / room state
       this._globalMessages = [];
       this._roomMessages   = {};
       this._typingUsers    = [];
       this._onlinePlayers  = [];
       this._status = 'online';
 
+      // Message event tracking
       this._evtGlobalMsg = false;
       this._evtRoomMsgMap = {};
-      this._chatServers = null;
-      this._chatDetail = {};
-      this._chatMsgs = {};
-      this._chatEvt = {};
+      // Bonfire: community state (communities live on Bonfire servers - see the Bonfire section at the end), presence
+      this._chatServers = null;      // my servers (list), refreshed by myServers / join / leave
+      this._chatDetail = {};         // server ref (lowercase) -> { server, channels }
+      this._chatMsgs = {};           // cid -> newest 100 messages
+      this._chatEvt = {};            // cid / 'server/channel' / '*' -> hat flag
       this._lastChatMsg = null;
-      this._chatTyping = {};
-      this._presence = {};
-      this._presenceEvt = {};
+      this._chatTyping = {};         // cid -> { username: until }
+      this._presence = {};           // username (lowercase) -> presence
+      this._presenceEvt = {};        // username (lowercase) / '*' -> hat flag
       this._lastPresenceUser = '';
-      this._rich = null;
+      this._rich = null;             // my rich presence (sent again after reconnects)
       this._lastMsg = null;
 
+      // Upload state
       this._uploadStatus = 'idle';
       this._lastUploadUrl = '';
       this._uploadProgress = 0;
 
+      // Verbose state
       this._lastActionOutput = '';
       this._lastActionSuccess = false;
 
+      // Login history
       this._loginHistory = [];
       this._evtNewLogin = false;
       this._knownLoginCount = -1;
 
+      // Notifications
       this._notifications = [];
       this._evtNotification = false;
       this._lastNotifTitle = '';
       this._lastNotifBody = '';
       this._notifInterval = null;
 
+      // File picker state
       this._selectedFile = null;
       this._selectedFileUrl = '';
       this._selectedFileName = '';
       this._selectedFileSize = 0;
       this._fileSelected = false;
 
+      // User lookup
       this._lookedUpUser = {};
       this._lookedUpHF = {};
     }
@@ -189,12 +208,14 @@
         color3: '#4c1d95',
         blocks: [
 
+          // connection stuff
           { blockType: Scratch.BlockType.LABEL, text: 'Connection' },
           { opcode: 'whenConnected',    blockType: Scratch.BlockType.HAT,     text: 'when connected to server' },
           { opcode: 'whenDisconnected', blockType: Scratch.BlockType.HAT,     text: 'when disconnected from server' },
           { opcode: 'serverOnline',     blockType: Scratch.BlockType.BOOLEAN, text: "Nookara service available?" },
           { opcode: 'isConnected',      blockType: Scratch.BlockType.BOOLEAN, text: "Nookara connection active?" },
 
+          // the login popup dance. see openLoginPrompt below for the fun bit
           { blockType: Scratch.BlockType.LABEL, text: 'Authentication' },
           { func: 'openAppsPage', blockType: Scratch.BlockType.BUTTON, text: 'Create an App' },
           { func: 'openGuides', blockType: Scratch.BlockType.BUTTON, text: 'View Guides' },
@@ -209,6 +230,7 @@
             arguments: { RESULT: { type: Scratch.ArgumentType.STRING, menu: 'authResultMenu', defaultValue: 'successful' } } },
           { opcode: 'whenAuthenticated',blockType: Scratch.BlockType.HAT,     text: 'when authenticated' },
 
+          // acc info
           { blockType: Scratch.BlockType.LABEL, text: 'Your Nookara Account' },
           { opcode: 'getAccountKey',    blockType: Scratch.BlockType.REPORTER,text: "account detail [KEY]",
             arguments: { KEY: { type: Scratch.ArgumentType.STRING, menu: 'accountKeys', defaultValue: 'username' } } },
@@ -222,11 +244,15 @@
           { opcode: 'whenUserUpdated',   blockType: Scratch.BlockType.HAT,     text: 'when a user updates their profile' },
           { opcode: 'lastUserUpdate',    blockType: Scratch.BlockType.REPORTER,text: 'latest profile update as JSON' },
 
+          // pfp n stuff
           { blockType: Scratch.BlockType.LABEL, text: 'Profile' },
           { opcode: 'uploadPfp',    blockType: Scratch.BlockType.COMMAND, text: 'upload image [DATA_URI] as profile picture and [MODE]', arguments: { DATA_URI: { type: Scratch.ArgumentType.STRING, defaultValue: '' }, MODE: { type: Scratch.ArgumentType.STRING, menu: 'uploadModeMenu', defaultValue: 'wait' } } },
           { opcode: 'setChatColor', blockType: Scratch.BlockType.COMMAND, text: 'set chat color to [COLOR]', arguments: { COLOR: { type: Scratch.ArgumentType.STRING, defaultValue: '#c084fc' } } },
           { opcode: 'setPronouns', blockType: Scratch.BlockType.COMMAND, text: 'set my pronouns to [PRONOUNS]', arguments: { PRONOUNS: { type: Scratch.ArgumentType.STRING, defaultValue: 'she/her' } } },
+          // display names: shown instead of the username (1-32 characters, empty clears it; mentions still use the username)
+          { opcode: 'setDisplayName', blockType: Scratch.BlockType.COMMAND, text: 'set my display name to [NAME]', arguments: { NAME: { type: Scratch.ArgumentType.STRING, defaultValue: 'Nat' } } },
 
+          // per-project save data, scoped to whoever's logged in so ppl cant mess with each others stuff
           { blockType: Scratch.BlockType.LABEL, text: 'Data Storage' },
           { opcode: 'setStorageId',     blockType: Scratch.BlockType.COMMAND, text: 'set storage ID to [ID]', arguments: { ID: { type: Scratch.ArgumentType.STRING, defaultValue: 'myProject' } } },
           { opcode: 'storageIdSet',     blockType: Scratch.BlockType.BOOLEAN, text: "project storage selected?" },
@@ -239,12 +265,14 @@
           { opcode: 'getAllStorageValues',blockType: Scratch.BlockType.REPORTER,text: "saved entry contents" },
           { opcode: 'clearStorage',     blockType: Scratch.BlockType.COMMAND, text: 'clear storage' },
 
+          // how full ur storage is, if u care
           { blockType: Scratch.BlockType.LABEL, text: 'Storage Information' },
           { opcode: 'storageUsage',     blockType: Scratch.BlockType.REPORTER,text: "saved data size" },
           { opcode: 'storageLimit',     blockType: Scratch.BlockType.REPORTER,text: "account storage capacity" },
           { opcode: 'storageRemaining', blockType: Scratch.BlockType.REPORTER,text: "available storage space" },
           { opcode: 'storageBiggest',   blockType: Scratch.BlockType.REPORTER,text: "saved entries ranked by size" },
 
+          // live chatroom stuff, sends over the websocket (only people online right now see it)
           { blockType: Scratch.BlockType.LABEL, text: 'Chatroom Messaging' },
           { opcode: 'sendGlobalMessage',blockType: Scratch.BlockType.COMMAND, text: 'send global message [MSG]', arguments: { MSG: { type: Scratch.ArgumentType.STRING, defaultValue: 'Hello!' } } },
           { opcode: 'getGlobalMessages',blockType: Scratch.BlockType.REPORTER,text: 'global messages' },
@@ -254,6 +282,7 @@
           { opcode: 'setTyping',        blockType: Scratch.BlockType.COMMAND, text: 'set typing [STATE]', arguments: { STATE: { type: Scratch.ArgumentType.STRING, menu: 'onOff', defaultValue: 'on' } } },
           { opcode: 'typingUsers',      blockType: Scratch.BlockType.REPORTER,text: 'typing users' },
 
+          // hats that fire when chatroom messages come in
           { opcode: 'whenGlobalMessageReceived', blockType: Scratch.BlockType.HAT, text: 'when global chat message received' },
           { opcode: 'whenRoomMessageReceived',   blockType: Scratch.BlockType.HAT, text: 'when message in room [ROOM] received',
             arguments: { ROOM: { type: Scratch.ArgumentType.STRING, defaultValue: 'general' } } },
@@ -261,6 +290,8 @@
           { opcode: 'lastMessageContent', blockType: Scratch.BlockType.REPORTER, text: 'last message content' },
           { opcode: 'lastMessageUserJson',blockType: Scratch.BlockType.REPORTER, text: 'last message user JSON' },
 
+          // Bonfire (nookara.cc/chat): communities live on Bonfire servers (one community each). [SERVER] is a
+          // server URL or the name / id of a community on a server you're connected to; channels go by name or id.
           { blockType: Scratch.BlockType.LABEL, text: 'Servers & Channels' },
           { opcode: 'chatMyServers',     blockType: Scratch.BlockType.REPORTER, text: "joined communities as JSON" },
           { opcode: 'chatJoinServer',    blockType: Scratch.BlockType.COMMAND,  text: 'join server [SERVER]', arguments: { SERVER: { type: Scratch.ArgumentType.STRING, defaultValue: 'invite code or server ID' } } },
@@ -280,6 +311,7 @@
           { opcode: 'chatTyping',        blockType: Scratch.BlockType.COMMAND,  text: 'show me typing in channel [CHANNEL] of server [SERVER]', arguments: { CHANNEL: { type: Scratch.ArgumentType.STRING, defaultValue: 'general' }, SERVER: { type: Scratch.ArgumentType.STRING, defaultValue: 'Velora' } } },
           { opcode: 'chatTypingUsers',   blockType: Scratch.BlockType.REPORTER, text: "typing activity for [CHANNEL] in [SERVER] as JSON", arguments: { CHANNEL: { type: Scratch.ArgumentType.STRING, defaultValue: 'general' }, SERVER: { type: Scratch.ArgumentType.STRING, defaultValue: 'Velora' } } },
 
+          // what you're doing, shown under your name in Nookara Chat + on your profile
           { blockType: Scratch.BlockType.LABEL, text: 'Status & Rich Presence' },
           { opcode: 'rpSet',             blockType: Scratch.BlockType.COMMAND,  text: 'set activity: [TYPE] [NAME] details [DETAILS] state [STATE]', arguments: { TYPE: { type: Scratch.ArgumentType.STRING, menu: 'activityTypes', defaultValue: 'playing' }, NAME: { type: Scratch.ArgumentType.STRING, defaultValue: 'my game' }, DETAILS: { type: Scratch.ArgumentType.STRING, defaultValue: 'Level 1' }, STATE: { type: Scratch.ArgumentType.STRING, defaultValue: 'In a match' } } },
           { opcode: 'rpImage',           blockType: Scratch.BlockType.COMMAND,  text: 'set activity picture to [URL]', arguments: { URL: { type: Scratch.ArgumentType.STRING, defaultValue: 'https://' } } },
@@ -294,10 +326,12 @@
           { opcode: 'whenPresenceChanges', blockType: Scratch.BlockType.HAT,    text: 'when [USER] changes status or activity', arguments: { USER: { type: Scratch.ArgumentType.STRING, defaultValue: 'anyone' } } },
           { opcode: 'rpLastUser',        blockType: Scratch.BlockType.REPORTER, text: "account from latest presence update" },
 
+          // info about ur own client, not the account
           { blockType: Scratch.BlockType.LABEL, text: 'Client Information' },
           { opcode: 'clientUsername',   blockType: Scratch.BlockType.REPORTER,text: "connected client name" },
           { opcode: 'myClientObject',   blockType: Scratch.BlockType.REPORTER,text: "connected client details" },
 
+          // whos online rn
           { blockType: Scratch.BlockType.LABEL, text: 'Users' },
           { opcode: 'connectedUsers',   blockType: Scratch.BlockType.REPORTER,text: "active connection list" },
           { opcode: 'setStatus',        blockType: Scratch.BlockType.COMMAND, text: 'set status to [STATUS]', arguments: { STATUS: { type: Scratch.ArgumentType.STRING, menu: 'statusMenu', defaultValue: 'online' } } },
@@ -307,6 +341,8 @@
           { opcode: 'lastUserJoined',   blockType: Scratch.BlockType.REPORTER,text: "most recent connection arrival" },
           { opcode: 'lastUserLeft',     blockType: Scratch.BlockType.REPORTER,text: "most recent connection departure" },
 
+          // private DMs. goes over the websocket when the other person is online,
+          // otherwise over https and it waits in the db until they come back
           { blockType: Scratch.BlockType.LABEL, text: 'DMs (Works offline)' },
           { opcode: 'sendIM',           blockType: Scratch.BlockType.COMMAND, text: 'send instant message to [TO] [MSG]', arguments: { TO: { type: Scratch.ArgumentType.STRING, defaultValue: 'username' }, MSG: { type: Scratch.ArgumentType.STRING, defaultValue: 'hii!' } } },
           { opcode: 'replyToStatus',    blockType: Scratch.BlockType.COMMAND, text: "reply to [TO]'s status with [MSG]", arguments: { TO: { type: Scratch.ArgumentType.STRING, defaultValue: 'username' }, MSG: { type: Scratch.ArgumentType.STRING, defaultValue: 'same!' } } },
@@ -324,6 +360,7 @@
           { opcode: 'markIMRead',       blockType: Scratch.BlockType.COMMAND, text: 'mark messages from [USER] as read', arguments: { USER: { type: Scratch.ArgumentType.STRING, defaultValue: 'username' } } },
           { opcode: 'deleteIM',         blockType: Scratch.BlockType.COMMAND, text: 'delete instant message with id [ID]', arguments: { ID: { type: Scratch.ArgumentType.NUMBER, defaultValue: 0 } } },
 
+          // old vMail blocks - hidden, but still here so existing projects load + run
           { opcode: 'whenMailReceived', blockType: Scratch.BlockType.HAT,     text: 'when vMail received', hideFromPalette: true },
           { opcode: 'sendMail',         blockType: Scratch.BlockType.COMMAND, text: 'send vMail to [TO] subject [SUBJECT] message [MSG]', hideFromPalette: true, arguments: { TO: { type: Scratch.ArgumentType.STRING, defaultValue: 'username' }, SUBJECT: { type: Scratch.ArgumentType.STRING, defaultValue: '' }, MSG: { type: Scratch.ArgumentType.STRING, defaultValue: 'Message here' } } },
           { opcode: 'getMailList',      blockType: Scratch.BlockType.REPORTER,text: "legacy inbox entries", hideFromPalette: true },
@@ -331,6 +368,7 @@
           { opcode: 'deleteMail',       blockType: Scratch.BlockType.COMMAND, text: 'delete vMail at index [N]', hideFromPalette: true, arguments: { N: { type: Scratch.ArgumentType.NUMBER, defaultValue: 1 } } },
           { opcode: 'deleteAllMail',    blockType: Scratch.BlockType.COMMAND, text: 'delete all vMail', hideFromPalette: true },
 
+          // friends list stuff
           { blockType: Scratch.BlockType.LABEL, text: 'Your Nookara Circle' },
           { opcode: 'getFriendsList',   blockType: Scratch.BlockType.REPORTER,text: "friend directory" },
           { opcode: 'sendFriendRequest',blockType: Scratch.BlockType.COMMAND, text: 'send friend request to [USER]', arguments: { USER: { type: Scratch.ArgumentType.STRING, defaultValue: 'username' } } },
@@ -339,6 +377,7 @@
           { opcode: 'removeFriend',     blockType: Scratch.BlockType.COMMAND, text: 'remove friend [USER]', arguments: { USER: { type: Scratch.ArgumentType.STRING, defaultValue: 'username' } } },
           { opcode: 'whenFriendRequest',blockType: Scratch.BlockType.HAT,     text: 'when friend request received' },
           { opcode: 'whenFriendAccepted',blockType: Scratch.BlockType.HAT,     text: 'when friend request accepted' },
+          { opcode: 'cancelFriendRequest', blockType: Scratch.BlockType.COMMAND, text: 'cancel friend request to [USER]', arguments: { USER: { type: Scratch.ArgumentType.STRING, defaultValue: 'username' } } },
           { opcode: 'getFriendRequests',blockType: Scratch.BlockType.REPORTER,text: "pending friendship invitations" },
           { opcode: 'getFriendStatus',  blockType: Scratch.BlockType.REPORTER,text: "friendship state with [USER]", arguments: { USER: { type: Scratch.ArgumentType.STRING, defaultValue: 'username' } } },
           { opcode: 'getFriendCount',   blockType: Scratch.BlockType.REPORTER,text: "number of friends" },
@@ -349,6 +388,22 @@
           { opcode: 'setDmPrivacy',     blockType: Scratch.BlockType.COMMAND, text: 'set who can DM me to [WHO]', arguments: { WHO: { type: Scratch.ArgumentType.STRING, menu: 'dmPrivacyOptions', defaultValue: 'everyone' } } },
           { opcode: 'getDmPrivacy',     blockType: Scratch.BlockType.REPORTER,text: 'who can DM me' },
 
+          // Ember's Inbox: mentions across my servers, saved messages, translate
+          { blockType: Scratch.BlockType.LABEL, text: 'Inbox, Saved Messages & Translate' },
+          { opcode: 'inboxMentions',    blockType: Scratch.BlockType.REPORTER,text: "my recent mentions as JSON (limit [LIMIT] before message [BEFORE])", arguments: { LIMIT: { type: Scratch.ArgumentType.NUMBER, defaultValue: 30 }, BEFORE: { type: Scratch.ArgumentType.STRING, defaultValue: '' } } },
+          { opcode: 'savedMessages',    blockType: Scratch.BlockType.REPORTER,text: "saved messages as JSON (limit [LIMIT] before saved id [BEFORE])", arguments: { LIMIT: { type: Scratch.ArgumentType.NUMBER, defaultValue: 50 }, BEFORE: { type: Scratch.ArgumentType.STRING, defaultValue: '' } } },
+          { opcode: 'saveMessage',      blockType: Scratch.BlockType.COMMAND, text: 'save [KIND] message [ID]', arguments: { KIND: { type: Scratch.ArgumentType.STRING, menu: 'savedKinds', defaultValue: 'channel' }, ID: { type: Scratch.ArgumentType.STRING, defaultValue: '' } } },
+          { opcode: 'saveGroupMessage', blockType: Scratch.BlockType.COMMAND, text: 'save group message from JSON [SNAPSHOT]', arguments: { SNAPSHOT: { type: Scratch.ArgumentType.STRING, defaultValue: '{"room":"grp_","room_name":"","user":"","message":"","created_at":0,"id":""}' } } },
+          { opcode: 'unsaveMessage',    blockType: Scratch.BlockType.COMMAND, text: 'unsave saved message [SAVEDID]', arguments: { SAVEDID: { type: Scratch.ArgumentType.STRING, defaultValue: '' } } },
+          { opcode: 'savedIdOfMessage', blockType: Scratch.BlockType.REPORTER,text: "saved id of [KIND] message [ID] (empty if not saved)", arguments: { KIND: { type: Scratch.ArgumentType.STRING, menu: 'savedKinds', defaultValue: 'channel' }, ID: { type: Scratch.ArgumentType.STRING, defaultValue: '' } } },
+          { opcode: 'translateText',    blockType: Scratch.BlockType.REPORTER,text: "translate [TEXT] to [LANG]", arguments: { TEXT: { type: Scratch.ArgumentType.STRING, defaultValue: 'Bonjour!' }, LANG: { type: Scratch.ArgumentType.STRING, defaultValue: 'en' } } },
+
+          // Ember Beta: early Ember versions are for people with a running Ember Beta membership
+          { blockType: Scratch.BlockType.LABEL, text: 'Ember Beta' },
+          { opcode: 'emberBetaStatus',  blockType: Scratch.BlockType.REPORTER,text: "Ember Beta status as JSON" },
+          { opcode: 'hasEmberBeta',     blockType: Scratch.BlockType.BOOLEAN, text: "do I have Ember Beta?" },
+
+          // money!!! 
           { blockType: Scratch.BlockType.LABEL, text: 'Currency' },
           { opcode: 'getBalance',       blockType: Scratch.BlockType.REPORTER,text: "available credits" },
           { opcode: 'transferCredits',  blockType: Scratch.BlockType.COMMAND, text: 'transfer [AMOUNT] credits to [USER]', arguments: { AMOUNT: { type: Scratch.ArgumentType.NUMBER, defaultValue: 10 }, USER: { type: Scratch.ArgumentType.STRING, defaultValue: 'username' } } },
@@ -371,6 +426,7 @@
           { opcode: 'membershipStatus', blockType: Scratch.BlockType.REPORTER, text: 'membership status of product [ID]', arguments: { ID: { type: Scratch.ArgumentType.STRING, defaultValue: 'prod_...' } } },
           { opcode: 'productInfo', blockType: Scratch.BlockType.REPORTER, text: 'info of product [ID]', arguments: { ID: { type: Scratch.ArgumentType.STRING, defaultValue: 'prod_...' } } },
 
+          // uploading pics/audio/video. big files get chunked, see uploadImage below for why
           { blockType: Scratch.BlockType.LABEL, text: 'Media Upload' },
           { opcode: 'uploadImage', blockType: Scratch.BlockType.COMMAND, text: 'upload image [DATA_URI] and [MODE]', arguments: { DATA_URI: { type: Scratch.ArgumentType.STRING, defaultValue: '' }, MODE: { type: Scratch.ArgumentType.STRING, menu: 'uploadModeMenu', defaultValue: 'wait' } } },
           { opcode: 'uploadAudio', blockType: Scratch.BlockType.COMMAND, text: 'upload audio [DATA_URI] and [MODE]', arguments: { DATA_URI: { type: Scratch.ArgumentType.STRING, defaultValue: '' }, MODE: { type: Scratch.ArgumentType.STRING, menu: 'uploadModeMenu', defaultValue: 'wait' } } },
@@ -379,6 +435,7 @@
           { opcode: 'lastUploadUrl',  blockType: Scratch.BlockType.REPORTER, text: "latest uploaded file link" },
           { opcode: 'uploadProgress', blockType: Scratch.BlockType.REPORTER, text: "file transfer percentage" },
 
+          // lets ppl pick a file off their computer, handles big files fine unlike some other extensions i wont name
           { blockType: Scratch.BlockType.LABEL, text: 'File Picker' },
           { opcode: 'openFilePicker', blockType: Scratch.BlockType.COMMAND, text: 'open file selector for [TYPE]', arguments: { TYPE: { type: Scratch.ArgumentType.STRING, menu: 'fileTypeMenu', defaultValue: 'videos' } } },
           { opcode: 'fileWasSelected',     blockType: Scratch.BlockType.BOOLEAN,   text: "file picker has a selection?" },
@@ -386,6 +443,7 @@
           { opcode: 'selectedFileName',    blockType: Scratch.BlockType.REPORTER,  text: "chosen file name" },
           { opcode: 'selectedFileSize',    blockType: Scratch.BlockType.REPORTER,  text: "chosen file size in bytes" },
 
+          // who's been logging into the account n from where (needs the sus scope for a reason)
           { blockType: Scratch.BlockType.LABEL, text: 'Login History' },
           { opcode: 'whenNewLoginDetected', blockType: Scratch.BlockType.HAT,     text: 'when new login detected' },
           { opcode: 'fetchLoginHistory',    blockType: Scratch.BlockType.COMMAND,  text: 'fetch login history' },
@@ -394,9 +452,11 @@
           { opcode: 'lastLoginDevice',      blockType: Scratch.BlockType.REPORTER, text: "device from latest sign-in" },
           { opcode: 'lastLoginIP',          blockType: Scratch.BlockType.REPORTER, text: "IP address from latest sign-in" },
 
+          // stalk other ppl's public info, don't be weird about it
           { blockType: Scratch.BlockType.LABEL, text: 'User Lookup' },
           { opcode: 'lookupUser',         blockType: Scratch.BlockType.COMMAND,  text: 'look up user [USER]', arguments: { USER: { type: Scratch.ArgumentType.STRING, defaultValue: 'username' } } },
           { opcode: 'lookedUpUsername',   blockType: Scratch.BlockType.REPORTER, text: "lookup result: account name" },
+          { opcode: 'lookedUpDisplayName', blockType: Scratch.BlockType.REPORTER, text: "lookup result: display name" },
           { opcode: 'lookedUpRank',       blockType: Scratch.BlockType.REPORTER, text: "lookup result: rank" },
           { opcode: 'lookedUpBio',        blockType: Scratch.BlockType.REPORTER, text: "lookup result: biography" },
           { opcode: 'lookedUpPronouns',   blockType: Scratch.BlockType.REPORTER, text: "lookup result: pronouns" },
@@ -409,6 +469,8 @@
           { opcode: 'lookedUpPlaytime',   blockType: Scratch.BlockType.REPORTER, text: "lookup result: hours recorded for [GAME]", arguments: { GAME: { type: Scratch.ArgumentType.STRING, defaultValue: 'Five Nights at JARVIS' } } },
           { opcode: 'lookedUpGames',      blockType: Scratch.BlockType.REPORTER, text: "lookup result: game library as JSON" },
 
+          // Nookara Badge Arcade: badges they've caught + the ones placed on their profile.
+          // (these are NOT the Nookara system badges in the Badges section below)
           { blockType: Scratch.BlockType.LABEL, text: 'Badge Arcade' },
           { opcode: 'lookedUpUnlockedBadges',     blockType: Scratch.BlockType.REPORTER, text: "lookup result: earned arcade badges as JSON" },
           { opcode: 'lookedUpUnlockedCount',      blockType: Scratch.BlockType.REPORTER, text: "lookup result: earned arcade badge total" },
@@ -418,10 +480,13 @@
           { opcode: 'lookedUpProfileBadgeCount',  blockType: Scratch.BlockType.REPORTER, text: "lookup result: displayed arcade badge total" },
           { opcode: 'lookedUpProfileBadge',       blockType: Scratch.BlockType.REPORTER, text: "displayed arcade badge [N] detail [PROP]", arguments: { PROP: { type: Scratch.ArgumentType.STRING, menu: 'arcadeBadgeProps', defaultValue: 'image URL' }, N: { type: Scratch.ArgumentType.NUMBER, defaultValue: 1 } } },
 
+          // the launcher - ikelene.net/launcher
           { blockType: Scratch.BlockType.LABEL, text: 'Hyperfocus' },
           { opcode: 'hyperfocusDownload', blockType: Scratch.BlockType.REPORTER, text: "Hyperfocus installer address" },
           { opcode: 'hyperfocusPlayLink', blockType: Scratch.BlockType.REPORTER, text: "Hyperfocus launch address for [GAME]", arguments: { GAME: { type: Scratch.ArgumentType.STRING, defaultValue: 'fnaj' } } },
 
+          // achievements: defined per game (apps.json / the community site's Achievements
+          // tab), each with a unique ID - that's what these blocks use
           { blockType: Scratch.BlockType.LABEL, text: 'Achievements' },
           { opcode: 'grantAchievement',  blockType: Scratch.BlockType.COMMAND, text: 'grant achievement [ID]', arguments: { ID: { type: Scratch.ArgumentType.STRING, defaultValue: 'achievement-id' } } },
           { opcode: 'revokeAchievement', blockType: Scratch.BlockType.COMMAND, text: 'revoke achievement [ID]', arguments: { ID: { type: Scratch.ArgumentType.STRING, defaultValue: 'achievement-id' } } },
@@ -430,6 +495,7 @@
           { opcode: 'whenAchievementUnlocked', blockType: Scratch.BlockType.HAT, text: 'when an achievement is unlocked' },
           { opcode: 'lastAchievement',   blockType: Scratch.BlockType.REPORTER,text: "latest achievement unlock data as JSON" },
 
+          // not system notis, ur app notis
           { blockType: Scratch.BlockType.LABEL, text: 'Nookara App Alerts' },
           { opcode: 'whenNotificationReceived', blockType: Scratch.BlockType.HAT,     text: 'when notification received' },
           { opcode: 'notificationCount',        blockType: Scratch.BlockType.REPORTER,text: "number of notifications" },
@@ -438,7 +504,9 @@
           { opcode: 'clearNotifications',       blockType: Scratch.BlockType.COMMAND, text: 'clear all notifications' },
           { opcode: 'lastNotificationTitle',    blockType: Scratch.BlockType.REPORTER,text: "heading of latest notification" },
           { opcode: 'lastNotificationBody',     blockType: Scratch.BlockType.REPORTER,text: "text of latest notification" },
+          { opcode: 'sendNotificationToMe',     blockType: Scratch.BlockType.COMMAND, text: 'send me a notification [TITLE] saying [BODY]', arguments: { TITLE: { type: Scratch.ArgumentType.STRING, defaultValue: 'Your toast is ready' }, BODY: { type: Scratch.ArgumentType.STRING, defaultValue: 'Come back and eat it.' } } },
 
+          // shiny lil achievement icons
           { blockType: Scratch.BlockType.LABEL, text: 'Badges' },
           { opcode: 'badgesLoaded',     blockType: Scratch.BlockType.BOOLEAN, text: "account badges ready?" },
           { opcode: 'allBadges',        blockType: Scratch.BlockType.REPORTER,text: "account badge collection" },
@@ -446,6 +514,8 @@
           { opcode: 'hasBadge',         blockType: Scratch.BlockType.BOOLEAN, text: "account owns badge [BADGE]?", arguments: { BADGE: { type: Scratch.ArgumentType.STRING, defaultValue: 'Community Developer' } } },
           { opcode: 'badgeInfo',        blockType: Scratch.BlockType.REPORTER,text: "details for account badge [BADGE]", arguments: { BADGE: { type: Scratch.ArgumentType.STRING, defaultValue: 'Community Developer' } } },
 
+          // the old peer-to-peer call blocks - replaced by Nookara Voice below, hidden
+          // so they stop showing up but projects that already use them still load
           { opcode: 'callUser',         blockType: Scratch.BlockType.COMMAND, text: 'call user [USER]', arguments: { USER: { type: Scratch.ArgumentType.STRING, defaultValue: 'username' } }, hideFromPalette: true },
           { opcode: 'whenCallReceived', blockType: Scratch.BlockType.HAT,     text: 'when call received', hideFromPalette: true },
           { opcode: 'callData',         blockType: Scratch.BlockType.REPORTER,text: "call invitation details", hideFromPalette: true },
@@ -453,6 +523,8 @@
           { opcode: 'setMic',           blockType: Scratch.BlockType.COMMAND, text: 'set mic to [STATE]', arguments: { STATE: { type: Scratch.ArgumentType.STRING, menu: 'onOff', defaultValue: 'on' } }, hideFromPalette: true },
           { opcode: 'stopCall',         blockType: Scratch.BlockType.COMMAND, text: 'stop call', hideFromPalette: true },
 
+          // Nookara Voice - replaces the separate "Voice Chat" extension. Needs the
+          // Nookara Voice permission; your voice name is your Nookara username.
           { blockType: Scratch.BlockType.LABEL, text: 'Nookara Voice' },
           { opcode: 'joinVoice',        blockType: Scratch.BlockType.COMMAND, text: 'join voice room [ROOM]', arguments: { ROOM: { type: Scratch.ArgumentType.STRING, defaultValue: 'my-room' } } },
           { opcode: 'leaveVoice',       blockType: Scratch.BlockType.COMMAND, text: 'leave voice room' },
@@ -473,6 +545,8 @@
           { opcode: 'whenVoiceLeave',   blockType: Scratch.BlockType.HAT,     text: 'when someone leaves voice' },
           { opcode: 'voiceEventUser',   blockType: Scratch.BlockType.REPORTER,text: "account from latest voice event" },
           '---',
+          // calls: ring an online Nookara user into the room you're in. How a call
+          // shows up is up to your project - these hats tell you it's happening.
           { opcode: 'voiceCallUser',    blockType: Scratch.BlockType.COMMAND, text: 'call [USER] into my voice room', arguments: { USER: { type: Scratch.ArgumentType.STRING, defaultValue: 'username' } } },
           { opcode: 'cancelVoiceCall',  blockType: Scratch.BlockType.COMMAND, text: 'cancel my call' },
           { opcode: 'whenVoiceAnswered',blockType: Scratch.BlockType.HAT,     text: 'when my call is answered' },
@@ -482,6 +556,7 @@
           { opcode: 'voiceCaller',      blockType: Scratch.BlockType.REPORTER,text: "incoming caller account" },
           { opcode: 'answerVoiceCall',  blockType: Scratch.BlockType.COMMAND, text: '[ANSWER] the call', arguments: { ANSWER: { type: Scratch.ArgumentType.STRING, menu: 'callAnswer', defaultValue: 'accept' } } },
 
+          // for debugging, see what the last command actually did
           { blockType: Scratch.BlockType.LABEL, text: 'Verbose' },
           { opcode: 'lastActionOutput',  blockType: Scratch.BlockType.REPORTER,text: "latest operation response as JSON" },
           { opcode: 'lastActionSuccess', blockType: Scratch.BlockType.BOOLEAN, text: "latest operation completed successfully?" },
@@ -495,7 +570,7 @@
           },
           accountKeys: {
             acceptReporters: true,
-            items: ['account_id', 'username', 'membership', 'staff_role', 'account_status',
+            items: ['account_id', 'username', 'display_name', 'membership', 'staff_role', 'account_status',
                     'moderation_level', 'credits', 'badges', 'joined_at',
                     'last_signed_in_at', 'sign_in_count', 'sessions',
                     'terms_accepted', 'terms_accepted_at', 'email_verified',
@@ -507,6 +582,7 @@
           serviceMenu: { acceptReporters: true, items: Object.keys(SERVICE_BITS) },
           statusMenu: { acceptReporters: false, items: ['online', 'idle', 'dnd', 'invisible'] },
           dmPrivacyOptions: { acceptReporters: true, items: ['everyone', 'friends only', 'members in my servers'] },
+          savedKinds: { acceptReporters: false, items: ['channel', 'dm'] },
           activityTypes: { acceptReporters: true, items: ['playing', 'listening', 'watching', 'competing', 'streaming', 'custom'] },
           chatMsgProps: { acceptReporters: false, items: ['text', 'author', 'channel', 'server', 'id', 'JSON'] },
           periodMenu: { acceptReporters: false, items: ['weekly','biweekly','monthly','bimonthly','yearly'] },
@@ -520,7 +596,7 @@
       if (this._ws && this._ws.readyState < 2) return;
       this._wsReady = false;
       this._ws = new WebSocket(SERVER_WS);
-      this._ws.binaryType = 'arraybuffer';
+      this._ws.binaryType = 'arraybuffer'; // Nookara Voice audio comes in as binary frames
 
       this._ws.onopen = () => {
         this._wsReady = true;
@@ -529,6 +605,8 @@
         this._evtDisconnected = false;
         if (this._token) this._wsAuth();
         this._getOnlinePlayers();
+        // joins / leaves only come for friends + people you share a server or chat with now, so the whole
+        // online list is asked for again every 30 s (the "connected users" / "is user connected" blocks)
         if (!this._onlineTimer) this._onlineTimer = setInterval(() => { if (this._ws?.readyState === 1) this._getOnlinePlayers(); }, 30000);
       };
 
@@ -541,6 +619,7 @@
       this._ws.onclose = () => {
         this._wsReady = false;
         this._wsAuthed = false;
+        // fail in-flight socket sends so sendIM falls back to https instead of hanging
         this._imPending.forEach(p => p.reject(new Error('disconnected')));
         this._imPending.clear();
         this._connected = false;
@@ -562,6 +641,9 @@
 
     _wsAuth() {
       if (!this._token) return;
+      // no fingerprint here on purpose, the token was made on nookara.cc
+      // but this code's actually running on scratch.mit.edu so the fingerprint
+      // would just be wrong lol
       this._wsSend({ type: 'auth_token', token: this._token });
     }
 
@@ -676,7 +758,7 @@
         case 'stopTyping':
           this._typingUsers = this._typingUsers.filter(u => u !== msg.user);
           break;
-        case 'user_update':
+        case 'user_update': // someone I can see changed their picture / name / colour / bio ... (profile-live.js)
           this._lastUserUpdate = { ...(msg.user || {}), changed: msg.changed || [], previous_username: msg.previous_username || null };
           this._evtUserUpdated = true;
           break;
@@ -684,17 +766,19 @@
           this._evtAccountUpdated = true;
           this._fetchAccount();
           break;
+        // Instant Messages
         case 'im_received': {
           const m = msg.message || {};
           this._lastIM = m;
           this._imUnread++;
-          this._evtMailReceived = true;
+          this._evtMailReceived = true; // old 'when vMail received' hat
           this._evtIMReceived = true;
           this._evtIMFromMap[Scratch.Cast.toString(m.from || '').toLowerCase()] = true;
           if (Array.isArray(this._mail)) this._mail.unshift({ ...m, from_username: m.from, subject: '' });
           break;
         }
         case 'im_unread':
+          // messages that came in while we were offline - they're in the db, go get them
           this._imUnread = Number(msg.count) || 0;
           if (this._imUnread > 0) this._fetchMail();
           break;
@@ -707,6 +791,7 @@
           break;
         }
         case 'mail_received':
+          // legacy duplicate of im_received, server still sends it for old clients
           break;
         case 'friend_request':
           this._evtFriendRequest = true;
@@ -724,6 +809,8 @@
           this._evtBalanceChanged = true;
           if (this._accountObj.account) this._accountObj.account.credits = (this._accountObj.account.credits || 0) + (msg.delta || 0);
           break;
+        // an admin changed which services this account can use (applies right away)
+        // achievements (granted from any of your apps - the launcher pops them up)
         case 'achievement_unlocked':
           if (msg.achievement?.id) {
             this._achievements[msg.achievement.id] = { ...(this._achievements[msg.achievement.id] || {}), ...msg.achievement, unlocked: true };
@@ -748,6 +835,7 @@
         case 'chat_error':
           this._rtcMessage(msg, true);
           break;
+        // ── Nookara Voice ──
         case 'voice_open':
           this._v.open = true;
           if (this._v.opening) { const o = this._v.opening; this._v.opening = null; o.resolve(); }
@@ -762,7 +850,7 @@
           this._vCall = { callId: msg.callId, from: msg.from, room: msg.room };
           this._evtVoiceCalled = true;
           break;
-        case 'voice_call_accepted':
+        case 'voice_call_accepted': // I said yes - hop into their room
           this._joinVoiceRoom(msg.room).catch(() => {});
           break;
         case 'voice_call_ringing':
@@ -806,12 +894,16 @@
     async _http(path, method = 'GET', body = null) {
       const headers = { 'Content-Type': 'application/json' };
       if (this._token) headers['Authorization'] = `Bearer ${this._token}`;
+      // skipping the fingerprint header here too, same reason as _wsAuth above
       const opts = { method, headers };
       if (body) opts.body = JSON.stringify(body);
       const res = await fetch(SERVER_HTTP + path, opts);
       return res.json().catch(() => ({}));
     }
 
+    // checks scopes on OUR end first so the block goes red instantly instead of
+    // waiting on a network round trip. server double checks everything anyway
+    // so this is just for a snappier error message, not actual security
     _requireScope(bit) {
       if (!this._authenticated) throw new Error('Not logged in');
       if ((this._disabledScopes & bit) !== 0) {
@@ -823,6 +915,8 @@
       }
     }
 
+    // Scopes can't be forced any more: a project only REQUESTS them and the person logging in can untick any of them.
+    // So "missing" means one of two things, and the message says which when we know it.
     _missingScopeText(bit, name) {
       const asked = this._requestedScopes;
       if (asked && (asked & bit) !== bit) {
@@ -949,7 +1043,7 @@
     // right before it unloads, if the ext-code flow never completed. That's
     // just window messaging, not dependent on the .closed property at all.
     _openLoginPopup(args) {
-      if (this._loginInProgress) return Promise.resolve();
+      if (this._loginInProgress) return Promise.resolve(); // already waiting on one
 
       let projName = Scratch.Cast.toString(args?.PROJECT_NAME || args?.project_name || 'My Project').trim();
       let rawPerm = args?.PERMISSIONS !== undefined && args?.PERMISSIONS !== null ? args.PERMISSIONS : (args?.permissions !== undefined ? args.permissions : '');
@@ -957,12 +1051,17 @@
       let cleanPerm = Scratch.Cast.toString(rawPerm).replace(/[^0-9]/g, '');
       let permInt = parseInt(cleanPerm, 10);
 
+      // NOT defaulting to full access if this is empty/broken!! used to secretly
+      // fall back to 65535 (literally every scope) which is baaaad. now it just
+      // asks you to build a real permission integer at nookara.cc/permissions instead
       if (isNaN(permInt) || permInt <= 0) {
         this._lastAuthResult = 'failed';
         throw new Error('Invalid Permissions Integer. Pick the permissions your project asks for at https://nookara.cc/permissions (people signing in can still untick any of them).');
       }
 
       this._loginInProgress = true;
+      // a permission integer lists the permissions the project ASKS for. Nothing is mandatory: the person signing in can untick any of them.
+      // (older integers kept some in the low 16 bits and the rest in the high 16 - both halves simply mean 'asked for')
       this._requestedScopes = (permInt & 0xFFFF) | ((permInt >>> 16) & 0xFFFF);
 
       return new Promise((resolve) => {
@@ -981,6 +1080,7 @@
           resolve();
         };
 
+        // Exposed so logout() can bail a login that's still waiting.
         this._cancelPendingLogin = () => {
           try { popup?.close(); } catch (_) {}
           this._lastAuthResult = 'failed';
@@ -1000,6 +1100,10 @@
               this._lastAuthResult = this._authenticated ? 'successful' : 'failed';
               return true;
             }
+            // Server-side truth for "is the popup even still open": it's
+            // been pinging a heartbeat every ~2s the whole time it's been
+            // up, so silence there means it's gone, full stop - no guessing
+            // from window.closed or postMessage needed.
             if (d.alive === false) {
               try { popup?.close(); } catch (_) {}
               this._lastAuthResult = 'failed';
@@ -1011,6 +1115,9 @@
 
         const onMessage = (e) => {
           if (e.data?.type !== 'velora_ext_closed' || e.data.code !== code) return;
+          // Popup says it's going away without finishing - one last status
+          // check first, in case success landed on the server right as it
+          // closed itself (same race guard the old debounced version had).
           doPoll(code).then(success => { if (!success) this._lastAuthResult = 'failed'; finish(); });
         };
 
@@ -1033,6 +1140,9 @@
             if (!popup) { this._lastAuthResult = 'failed'; this._lastActionSuccess = false; this._lastActionOutput = JSON.stringify({ error: 'Popup blocked. Allow popups to sign in to Nookara.' }); finish(); return; }
             window.addEventListener('message', onMessage);
 
+            // Keeps asking the server every 1.5s until it's either done or
+            // dead (404 after 5 min, see routes/auth.js) - the message
+            // listener above covers a manual close well before that.
             pollInterval = setInterval(async () => {
               if (await doPoll(code)) finish();
             }, 1500);
@@ -1057,7 +1167,7 @@
     // the token never comes from the status poll: the login window posts a one-time grant to this page (the browser only delivers it
     // to the address the sign-in started from), and that swaps for the token
     _openAppLogin(args) {
-      if (this._loginInProgress) return Promise.resolve();
+      if (this._loginInProgress) return Promise.resolve(); // already waiting on one
       const appId = Scratch.Cast.toString(args?.APP_ID ?? '').trim();
       if (!/^app_[0-9a-f]{20}$/.test(appId)) {
         this._lastAuthResult = 'failed';
@@ -1172,6 +1282,9 @@
     whenGlobalMessageReceived() { const v = this._evtGlobalMsg; this._evtGlobalMsg = false; return v; }
     whenRoomMessageReceived({ ROOM }) { const v = !!this._evtRoomMsgMap[ROOM]; this._evtRoomMsgMap[ROOM] = false; return v; }
 
+    // Kept for existing projects that poll it (e.g. to show a "logging
+    // in..." sprite), but nothing internal needs this anymore - the sign in
+    // block now blocks the script itself for as long as this would be true.
     isLoginOpen()          { return !!this._loginInProgress; }
     authResult({ RESULT }) { return this._lastAuthResult === RESULT; }
 
@@ -1242,6 +1355,7 @@
     lastActionOutput()  { return this._lastActionOutput; }
     lastActionSuccess() { return this._lastActionSuccess; }
     notificationCount()     { return this._notifications.length; }
+    // the number on the bell, asked fresh each time (GET /account/notifications/unread-count)
     async unreadNotificationCount() {
       if (!this._token) return 0;
       const data = await this._http('/account/notifications/unread-count').catch(() => ({}));
@@ -1261,6 +1375,7 @@
       });
     }
 
+    // One typed field catalogue powers all account reporters and menus.
     _flatAccount() {
       const { account, profile = {} } = this._accountObj;
       if (!account) {
@@ -1288,6 +1403,7 @@
         banner_url: profile.banner ?? '',
         biography: profile.bio ?? '',
         pronouns: profile.pronouns ?? '',
+        display_name: account.display_name ?? '',
         timezone: profile.timezone ?? '',
         country: profile.country ?? '',
       };
@@ -1343,6 +1459,7 @@
 
     setStorageId({ ID }) { this._storageId = Scratch.Cast.toString(ID); }
 
+    // ── Nookara Chat ──
     async _chatServer(ref) {
       this._requireScope(SCOPES.CHAT);
       const k = Scratch.Cast.toString(ref).trim().toLowerCase();
@@ -1371,6 +1488,7 @@
     async chatJoinServer({ SERVER }) {
       this._requireScope(SCOPES.CHAT);
       const ref = Scratch.Cast.toString(SERVER).trim().split('/').pop();
+      // a server ID (s...) / one listed in Discover, or an invite code
       let d = await this._http(`/chat/servers/${encodeURIComponent(ref)}/join`, 'POST');
       if (d.error === 'server_not_found') d = await this._http(`/chat/join/${encodeURIComponent(ref)}`, 'POST');
       this._lastActionOutput = JSON.stringify(d); this._lastActionSuccess = !d.error;
@@ -1430,6 +1548,7 @@
       const { c } = await this._chatChannel(CHANNEL, SERVER).catch(() => ({ c: null }));
       return !!c?.can_post;
     }
+    // hats: needs to know the channel's ID, which is looked up (and then remembered) the first time
     whenChatMessage({ CHANNEL, SERVER }) {
       const key = `${Scratch.Cast.toString(SERVER).trim().toLowerCase()}/${Scratch.Cast.toString(CHANNEL).trim().replace(/^#/, '').toLowerCase()}`;
       this._chatHatIds = this._chatHatIds || {};
@@ -1464,6 +1583,7 @@
       return JSON.stringify(c ? Object.keys(this._chatTyping[c.cid] || {}).filter(u => this._chatTyping[c.cid][u] > now) : []);
     }
 
+    // ── status + rich presence ──
     rpSet({ TYPE, NAME, DETAILS, STATE }) {
       if (!this._authenticated) throw new Error('Not logged in');
       const prev = this._rich || {};
@@ -1626,18 +1746,31 @@
       return this._onlinePlayers.some(p => Scratch.Cast.toString(p.username).toLowerCase() === u);
     }
 
-    async sendIM() {
+    // DMs are end-to-end encrypted, and a project can't keep keys safe (its storage is shared with whatever else runs on that site), so these blocks say so
+    // DMs with people are end-to-end encrypted, but DMs with BOTS never are: send those as plain text (POST /im/send {to, message}).
+    // The server answers e2ee_required for a person, and then the block says why it can't.
+    async sendIM({ TO, MSG } = {}) {
       this._requireScope(SCOPES.VMAIL_SEND);
-      return this._dmsEncrypted();
+      const to = Scratch.Cast.toString(TO).trim();
+      if (!to) throw new Error('Enter who to message.');
+      this._lastActionSuccess = false;
+      const data = await this._http('/im/send', 'POST', { to, message: Scratch.Cast.toString(MSG) });
+      this._lastActionOutput = JSON.stringify(data);
+      if (data.error === 'e2ee_required') return this._dmsEncrypted();
+      if (data.error) throw (this._scopeErrorFromData(data) || new Error(data.message || data.error));
+      this._lastActionSuccess = !!data.success;
+      this._lastIMDelivered = !!data.delivered;
+      return data;
     }
 
     lastIMSender()    { return this._lastIM?.from || ''; }
     lastIMContent()   { return this._lastIM?.body || ''; }
     lastIMStatusReply() { return this._lastIM?.status_reply?.text || ''; }
 
+    // answers their CURRENT custom status (looked up first; the server refuses it if it changed or you can't DM them)
     _dmsEncrypted() {
       this._lastActionSuccess = false;
-      throw new Error('Direct messages are end-to-end encrypted now, and a project cannot keep keys safe. People can message each other in Ember.');
+      throw new Error('Direct messages are end-to-end encrypted now, and a project cannot keep keys safe. People can message each other in Ember. Bots can be messaged from here: DMs with bots are plain text.');
     }
 
     async replyToStatus() {
@@ -1694,6 +1827,7 @@
       if (Array.isArray(this._mail)) this._mail = this._mail.filter(m => m.id !== id);
     }
 
+    // legacy vMail block - subject is ignored now
     async sendMail({ TO, MSG }) {
       return this.sendIM({ TO, MSG });
     }
@@ -1747,6 +1881,72 @@
       await this._fetchFriends();
     }
 
+    // takes back a request I sent that nobody answered yet. the id comes from the outgoing list
+    async cancelFriendRequest({ USER }) {
+      this._requireScope(SCOPES.FRIENDS_MANAGE);
+      this._requireScope(SCOPES.FRIENDS_READ);
+      const name = Scratch.Cast.toString(USER).trim().toLowerCase();
+      const list = await this._http('/friends/requests');
+      if (list.error) throw (this._scopeErrorFromData(list) || new Error(list.error));
+      const req = (list.outgoing || []).find(r => String(r.to_username).toLowerCase() === name);
+      if (!req) return;
+      await this._cmd(`/friends/request/${encodeURIComponent(req.id)}`, 'DELETE');
+    }
+
+    // Ember's Inbox. these need Chat; saving or listing a DM also needs Read Instant Messages
+    async inboxMentions({ LIMIT, BEFORE }) {
+      const q = new URLSearchParams({ limit: String(Math.min(Math.max(Math.floor(Scratch.Cast.toNumber(LIMIT)) || 30, 1), 50)) });
+      if (Scratch.Cast.toString(BEFORE).trim()) q.set('before', Scratch.Cast.toString(BEFORE).trim());
+      return JSON.stringify(await this._bfRequest(`/chat/inbox/mentions?${q}`));
+    }
+
+    async savedMessages({ LIMIT, BEFORE }) {
+      const q = new URLSearchParams({ limit: String(Math.min(Math.max(Math.floor(Scratch.Cast.toNumber(LIMIT)) || 50, 1), 100)) });
+      if (Scratch.Cast.toString(BEFORE).trim()) q.set('before', Scratch.Cast.toString(BEFORE).trim());
+      return JSON.stringify(await this._bfRequest(`/chat/saved?${q}`));
+    }
+
+    async saveMessage({ KIND, ID }) {
+      const kind = Scratch.Cast.toString(KIND) === 'dm' ? 'dm' : 'channel';
+      if (kind === 'dm') this._requireScope(SCOPES.VMAIL_READ);
+      await this._bfRequest('/chat/saved', 'POST', { kind, id: Scratch.Cast.toString(ID).trim() });
+    }
+
+    async saveGroupMessage({ SNAPSHOT }) {
+      let snapshot;
+      try { snapshot = JSON.parse(Scratch.Cast.toString(SNAPSHOT)); } catch { throw new Error('Enter valid JSON.'); }
+      await this._bfRequest('/chat/saved', 'POST', { kind: 'group', snapshot });
+    }
+
+    async unsaveMessage({ SAVEDID }) {
+      await this._bfRequest(`/chat/saved/${encodeURIComponent(Scratch.Cast.toString(SAVEDID).trim())}`, 'DELETE');
+    }
+
+    async savedIdOfMessage({ KIND, ID }) {
+      const kind = Scratch.Cast.toString(KIND) === 'dm' ? 'dm' : 'channel';
+      const id = Scratch.Cast.toString(ID).trim();
+      if (!id) return '';
+      const data = await this._bfRequest('/chat/saved/check', 'POST', { kind, ids: [id] });
+      return (data.saved && data.saved[id]) || '';
+    }
+
+    async translateText({ TEXT, LANG }) {
+      const data = await this._bfRequest('/chat/translate', 'POST', { text: Scratch.Cast.toString(TEXT), to: Scratch.Cast.toString(LANG).trim() || 'en' });
+      return data.text || '';
+    }
+
+    // Ember Beta: needs Chat. beta is true only with a running Ember Beta membership (selling the product doesn't count)
+    async emberBetaStatus() {
+      const data = await this._bfRequest('/chat/beta');
+      return JSON.stringify({ beta: !!data.beta, membership: data.membership || null, product: data.product || null });
+    }
+
+    async hasEmberBeta() {
+      const data = await this._bfRequest('/chat/beta');
+      return !!data.beta;
+    }
+
+    // blocking: a blocked pair can't message, call, pay or friend each other; blocking also ends any friendship
     async blockUser({ USER }) {
       this._requireScope(SCOPES.FRIENDS_MANAGE);
       await this._cmd('/account/blocks', 'POST', { username: String(USER) });
@@ -1773,6 +1973,7 @@
       return (data.blocks || []).some(b => String(b.username).toLowerCase() === name);
     }
 
+    // "who can DM me": everyone | friends only | members in my servers (friends count as members). Staff always get through.
     async setDmPrivacy({ WHO }) {
       this._requireScope(SCOPES.CHAT);
       const w = String(WHO).trim().toLowerCase();
@@ -1802,6 +2003,9 @@
       return data.balance ?? 0;
     }
 
+    // Sending credits needs the person to say yes: Nookara opens a popup ("<project> is trying to
+    // make a payment to <user> of <n> credits") with Cancel / Pay, and Pay needs a captcha.
+    // The block waits until they answer; closing the popup = cancel.
     async transferCredits({ AMOUNT, USER }) {
       this._requireScope(SCOPES.CURRENCY_PAY);
       const data = await this._http('/currency/transfer-request', 'POST', { to: Scratch.Cast.toString(USER), amount: parseInt(AMOUNT) });
@@ -1829,6 +2033,7 @@
           try { closed = popup.closed; } catch (_) {}
           if (closed || Date.now() - started > 11 * 60 * 1000) {
             clearInterval(t);
+            // cancel only touches a pending request, so a payment that landed right as it closed still counts
             const c = await this._http(`/currency/transfer-request/${data.id}/cancel`, 'POST').catch(() => null);
             resolve(c && c.status ? c : { status: 'cancelled' });
           }
@@ -1839,6 +2044,7 @@
       if (result.status !== 'paid') throw new Error(result.status === 'failed' ? (result.error || 'Payment failed') : `Payment ${result.status}`);
     }
 
+    // Products (docs/PAYMENTS.md): adding to the cart moves no money, so it needs no credits scope. The person pays on the checkout page.
     async _addToCart(body) {
       if (!this._authenticated) throw new Error('Not logged in');
       const data = await this._http('/cart/items', 'POST', body);
@@ -1855,6 +2061,7 @@
     async addPaymentToCart({ AMOUNT, USER, NOTE }) {
       await this._addToCart({ to: Scratch.Cast.toString(USER), amount: Math.floor(Scratch.Cast.toNumber(AMOUNT)), note: Scratch.Cast.toString(NOTE) });
     }
+    // needs Transfer Credits, and nobody sees a page: the person gets a notification. Anything that bills later has to go through checkout
     async _payDirect(items) {
       this._requireScope(SCOPES.CURRENCY_PAY);
       const quote = await this._http('/checkout/direct/quote', 'POST', { items });
@@ -1873,6 +2080,7 @@
     async payUserDirect({ AMOUNT, USER, NOTE }) {
       await this._payDirect([{ to: Scratch.Cast.toString(USER), amount: Math.floor(Scratch.Cast.toNumber(AMOUNT)), note: Scratch.Cast.toString(NOTE) }]);
     }
+    // waits until the checkout window is closed; ask "owns product" afterwards to see what happened
     async openCheckout() {
       let popup = null;
       try {
@@ -2019,13 +2227,16 @@
       const doUpload = async () => {
         let data;
         if (typeof DATA_URI === 'string' && DATA_URI.startsWith('blob:')) {
+          // splits into 10 MB pieces to stay under cf's 100 mb limit (boo)
+          // grabs the actual File object if we have it instead of re-fetching the
+          // blob url, way faster and doesn't load the whole thing into memory twice
           const fileBlob = (this._selectedFile && this._selectedFileUrl === DATA_URI)
             ? this._selectedFile
             : await this._blobFromUrl(DATA_URI);
 
           const mimeType = fileBlob.type || 'video/mp4';
           const originalName = this._selectedFileName || 'video.mp4';
-          const CHUNK = 10 * 1024 * 1024;
+          const CHUNK = 10 * 1024 * 1024; // 10 MB per chunk
           const total = Math.ceil(fileBlob.size / CHUNK);
           const sessionId = `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 
@@ -2087,6 +2298,13 @@
       await this._cmd('/account/update', 'PATCH', { color: COLOR });
     }
 
+    // '' clears it. Refused names (reserved, a staff member's, invisible characters...) come back as the server's error
+    async setDisplayName({ NAME }) {
+      this._requireScope(SCOPES.ACCOUNT_WRITE);
+      const name = Scratch.Cast.toString(NAME ?? '').trim();
+      await this._cmd('/account/update', 'PATCH', { display_name: name || null });
+    }
+
     async setPronouns({ PRONOUNS }) {
       this._requireScope(SCOPES.ACCOUNT_WRITE);
       await this._cmd('/account/update', 'PATCH', { pronouns: Scratch.Cast.toString(PRONOUNS ?? '') });
@@ -2105,6 +2323,7 @@
         this._selectedFileName = '';
         this._selectedFileSize = 0;
         this._selectedFile = null;
+        // gotta manually clean up the old blob url or it just sits in memory forever
         if (this._selectedFileUrl) { try { URL.revokeObjectURL(this._selectedFileUrl); } catch (_) {} }
         this._selectedFileUrl = '';
 
@@ -2132,6 +2351,8 @@
           const file = input.files && input.files[0];
           if (!file) { finish(); return; }
 
+          // createObjectURL is basically instant no matter how big the file is,
+          // it doesn't actually read the file into memory or anything
           this._selectedFile = file;
           this._selectedFileUrl = URL.createObjectURL(file);
           this._selectedFileName = file.name || '';
@@ -2159,16 +2380,22 @@
     loginHistoryCount() { this._requireScope(SCOPES.PROFILE_SENSITIVE); return this._loginHistory.length; }
     loginHistoryJSON()  { this._requireScope(SCOPES.PROFILE_SENSITIVE); return JSON.stringify(this._loginHistory); }
     lastLoginDevice()   { this._requireScope(SCOPES.PROFILE_SENSITIVE); return this._loginHistory[0]?.browser_ua || ''; }
+    // this isn't actually ur real ip!! its a hashed version, we don't keep raw ips
+    // around anymore for privacy reasons. still useful for "is this the same
+    // location as last time" type checks tho, just cant reverse it back into an ip
     lastLoginIP()       { this._requireScope(SCOPES.PROFILE_SENSITIVE); return this._loginHistory[0]?.ip_hash || ''; }
 
     async lookupUser({ USER }) {
       const data = await this._cmd(`/account/lookup/${encodeURIComponent(USER)}`);
       this._lookedUpUser = data;
+      // Hyperfocus: what they're playing + playtime (only games that are in the launcher right now)
       this._lookedUpHF = await this._http(`/hyperfocus/profile/${encodeURIComponent(USER)}`).catch(() => ({})) || {};
+      // Badge Arcade: unlocked badges + where they sit on the profile
       this._lookedUpArcade = await this._http(`/arcade/profile/${encodeURIComponent(USER)}`).catch(() => ({})) || {};
     }
 
     lookedUpUsername() { return this._lookedUpUser.username || ''; }
+    lookedUpDisplayName() { return this._lookedUpUser.display_name || this._lookedUpUser.username || ''; } // (their username when they have none)
     lookedUpRank()     { return this._lookedUpUser.rank || ''; }
     lookedUpBio()      { return this._lookedUpUser.bio || ''; }
     lookedUpPronouns() { return this._lookedUpUser.pronouns || ''; }
@@ -2176,6 +2403,7 @@
     lookedUpCountry()  { return this._lookedUpUser.country_code || ''; }
     lookedUpJSON()     { return JSON.stringify(this._lookedUpUser); }
 
+    // Hyperfocus launcher blocks
     _hfGame(game) {
       const q = Scratch.Cast.toString(game).trim().toLowerCase();
       return (this._lookedUpHF?.games || []).find(g => g.id.toLowerCase() === q || g.name.toLowerCase() === q);
@@ -2186,6 +2414,8 @@
     lookedUpPlaytime({ GAME }) { const g = this._hfGame(GAME); return g ? Math.round(g.seconds / 36) / 100 : 0; }
     lookedUpGames()     { return JSON.stringify(this._lookedUpHF?.games || []); }
 
+    // Badge Arcade. Profile badge positions: x = centre as a fraction (0-1) of the profile's
+    // width, y = centre in pixels from the top of the profile, size = width/height in pixels.
     _arcadeCollection() { return Array.isArray(this._lookedUpArcade?.collection) ? this._lookedUpArcade.collection : []; }
     _arcadeBoard()      { return Array.isArray(this._lookedUpArcade?.board) ? this._lookedUpArcade.board : []; }
     _arcadeFind(name)   { const q = Scratch.Cast.toString(name).trim().toLowerCase(); return this._arcadeCollection().find(b => b.name.toLowerCase() === q || Scratch.Cast.toString(b.id) === q); }
@@ -2221,6 +2451,11 @@
       this._lastNotifTitle = '';
       this._lastNotifBody = '';
     }
+    // signed in through an App with Send Notifications: a notification to the person signed in, under "From apps"
+    // (POST /account/notifications/send: 10 an hour, 50 a day)
+    async sendNotificationToMe({ TITLE, BODY }) {
+      await this._cmd('/account/notifications/send', 'POST', { title: Scratch.Cast.toString(TITLE), body: Scratch.Cast.toString(BODY) });
+    }
 
     async _pollLoginHistory() {
       if (!this._token) return;
@@ -2248,6 +2483,10 @@
       this._notifications = notifs;
     }
 
+    // ── admin restrictions ─────────────────────────────────────────────────────
+    // ── achievements ──────────────────────────────────────────────────────────
+    // get achievements -> { "<id>": { name, description, icon, rarity, hidden, game, gameName, unlocked, unlockedAt } }
+    // (hidden ones you don't have yet read "Hidden Achievement" / "Earn this to view it!")
     async _loadAchievements() {
       this._requireScope(SCOPES.PROFILE_READ);
       const data = await this._cmd('/achievements');
@@ -2280,6 +2519,11 @@
       return !!bits && (this._disabledScopes & bits) !== 0;
     }
 
+    // ── Nookara Voice ──────────────────────────────────────────────────────────
+    // Voice rooms over the Nookara socket: {type:'voice', msg} JSON both ways, audio
+    // as binary frames (out: raw Int16; in: [u16 idLen][sender id][Int16 PCM]).
+    // Nookara rooms are WebRTC/SFU only.  Other Scratch party rooms retain the
+    // legacy voice protocol for compatibility.
     _rtcReq(type, body = {}) {
       return new Promise((resolve, reject) => {
         const r = this._rtc, nonce = `scratch_rtc_${Date.now()}_${Math.random().toString(36).slice(2)}`;
@@ -2419,7 +2663,7 @@
       if (!this._vQueues.has(senderId)) this._vQueues.set(senderId, { next: this._vAudio.currentTime });
       const q = this._vQueues.get(senderId);
       const now = this._vAudio.currentTime;
-      if (q.next < now - 0.05 || q.next > now + 1.0) q.next = now + 0.05;
+      if (q.next < now - 0.05 || q.next > now + 1.0) q.next = now + 0.05; // small jitter buffer
       const buf = this._vAudio.createBuffer(1, f32.length, V_RATE);
       buf.copyToChannel(f32, 0);
       const src = this._vAudio.createBufferSource();
@@ -2535,6 +2779,7 @@
       this._vUserSettings.set(name, st);
       this._vApplyUser(name);
     }
+    // hat blocks are edge-triggered, so queued events go out one per true/false flip
     whenVoiceJoin() {
       if (this._vJoinFlip) { this._vJoinFlip = false; return false; }
       if (!this._vJoinQ.length) return false;
@@ -2551,6 +2796,7 @@
     }
     voiceEventUser() { return this._vEventUser; }
 
+    // calls
     voiceCallUser({ USER }) {
       this._requireScope(SCOPES.VOICE);
       if (!this._v.room) { this._vCallResult = 'failed: not in voice'; this._evtVoiceAnswered = true; return; }
@@ -2566,7 +2812,7 @@
     answerVoiceCall({ ANSWER }) {
       if (!this._vCall) return;
       this._wsSend({ type: 'voice_call_answer', callId: this._vCall.callId, accept: ANSWER === 'accept' });
-      this._vCall = null;
+      this._vCall = null; // accepting: Nookara answers with voice_call_accepted and we join their room
     }
 
     callUser({ USER }) {
@@ -5273,6 +5519,119 @@
     ]
   },
   {
+    "opcode": "bfGetChatChannelsCidViewers",
+    "blockType": "reporter",
+    "text": "viewers for channel [CID]",
+    "arguments": {
+      "CID": {
+        "type": "string",
+        "defaultValue": ""
+      }
+    },
+    "method": "GET",
+    "path": "/chat/channels/:cid/viewers",
+    "params": [
+      "cid"
+    ],
+    "query": [],
+    "body": false,
+    "upload": false,
+    "scopes": [
+      2048
+    ]
+  },
+  {
+    "opcode": "bfGetChatPersonalEmojis",
+    "blockType": "reporter",
+    "text": "my personal emojis as JSON",
+    "arguments": {},
+    "method": "GET",
+    "path": "/chat/personal-emojis",
+    "params": [],
+    "query": [],
+    "body": false,
+    "upload": false,
+    "scopes": [
+      2048
+    ]
+  },
+  {
+    "opcode": "bfPostChatPersonalEmojis",
+    "blockType": "command",
+    "text": "add personal emoji options JSON [OPTIONS] file data URI [FILE] filename [FILENAME]",
+    "arguments": {
+      "OPTIONS": {
+        "type": "string",
+        "defaultValue": "{\"name\":\"myemoji\"}"
+      },
+      "FILE": {
+        "type": "string",
+        "defaultValue": ""
+      },
+      "FILENAME": {
+        "type": "string",
+        "defaultValue": "emoji.png"
+      }
+    },
+    "method": "POST",
+    "path": "/chat/personal-emojis",
+    "params": [],
+    "query": [],
+    "body": true,
+    "upload": true,
+    "scopes": [
+      2048
+    ]
+  },
+  {
+    "opcode": "bfPatchChatPersonalEmojisEid",
+    "blockType": "command",
+    "text": "rename personal emoji [EID] options JSON [OPTIONS]",
+    "arguments": {
+      "EID": {
+        "type": "string",
+        "defaultValue": ""
+      },
+      "OPTIONS": {
+        "type": "string",
+        "defaultValue": "{\"name\":\"newname\"}"
+      }
+    },
+    "method": "PATCH",
+    "path": "/chat/personal-emojis/:eid",
+    "params": [
+      "eid"
+    ],
+    "query": [],
+    "body": true,
+    "upload": false,
+    "scopes": [
+      2048
+    ]
+  },
+  {
+    "opcode": "bfDeleteChatPersonalEmojisEid",
+    "blockType": "command",
+    "text": "delete personal emoji [EID]",
+    "arguments": {
+      "EID": {
+        "type": "string",
+        "defaultValue": ""
+      }
+    },
+    "method": "DELETE",
+    "path": "/chat/personal-emojis/:eid",
+    "params": [
+      "eid"
+    ],
+    "query": [],
+    "body": false,
+    "upload": false,
+    "scopes": [
+      2048
+    ]
+  },
+  {
     "opcode": "bfGetChatUnfurl",
     "blockType": "reporter",
     "text": "link preview data with options [QUERY]",
@@ -6007,6 +6366,7 @@
   const bfString = value => Scratch.Cast.toString(value);
   const bfArg = (value = '', menu) => ({ type: Scratch.ArgumentType.STRING, defaultValue: value, ...(menu ? { menu } : {}) });
   const bfBlock = (opcode, blockType, text, args = {}) => ({ opcode, blockType, text, arguments: args });
+  // pre-Bonfire routes for Nookara-hosted communities (read-only now) - see the note in getInfo below
   const BF_DEPRECATED_ROUTE = /^\/chat\/(invite|servers|discover|channels|messages|join|upload|notify|open|emojis|sounds|hooks|bridge|media\/(upload|external))(\/|$)/;
   const bfCoreBlocks = [
           { blockType: Scratch.BlockType.LABEL, text: 'Communities & Channels' },
@@ -6028,6 +6388,7 @@
           { opcode: 'chatTyping',        blockType: Scratch.BlockType.COMMAND,  text: 'show me typing in channel [CHANNEL] of server [SERVER]', arguments: { CHANNEL: { type: Scratch.ArgumentType.STRING, defaultValue: 'general' }, SERVER: { type: Scratch.ArgumentType.STRING, defaultValue: 'https://chat.ikelene.net' } } },
           { opcode: 'chatTypingUsers',   blockType: Scratch.BlockType.REPORTER, text: "typing activity for [CHANNEL] in [SERVER] as JSON", arguments: { CHANNEL: { type: Scratch.ArgumentType.STRING, defaultValue: 'general' }, SERVER: { type: Scratch.ArgumentType.STRING, defaultValue: 'https://chat.ikelene.net' } } },
 
+          // what you're doing, shown under your name in Nookara Chat + on your profile
           { blockType: Scratch.BlockType.LABEL, text: 'Status & Rich Presence' },
           { opcode: 'rpSet',             blockType: Scratch.BlockType.COMMAND,  text: 'set activity: [TYPE] [NAME] details [DETAILS] state [STATE]', arguments: { TYPE: { type: Scratch.ArgumentType.STRING, menu: 'activityTypes', defaultValue: 'playing' }, NAME: { type: Scratch.ArgumentType.STRING, defaultValue: 'my game' }, DETAILS: { type: Scratch.ArgumentType.STRING, defaultValue: 'Level 1' }, STATE: { type: Scratch.ArgumentType.STRING, defaultValue: 'In a match' } } },
           { opcode: 'rpImage',           blockType: Scratch.BlockType.COMMAND,  text: 'set activity picture to [URL]', arguments: { URL: { type: Scratch.ArgumentType.STRING, defaultValue: 'https://' } } },
@@ -6039,6 +6400,7 @@
           { opcode: 'whenPresenceChanges', blockType: Scratch.BlockType.HAT,    text: 'when [USER] changes status or activity', arguments: { USER: { type: Scratch.ArgumentType.STRING, defaultValue: 'anyone' } } },
           { opcode: 'rpLastUser',        blockType: Scratch.BlockType.REPORTER, text: "account from latest presence update" },
 
+          
   ];
   const bfOldChat = new Set(['sendGlobalMessage', 'getGlobalMessages', 'sendRoomMessage', 'getRoomMessages', 'joinRoom', 'setTyping', 'typingUsers', 'whenGlobalMessageReceived', 'whenRoomMessageReceived', 'lastMessageUser', 'lastMessageContent', 'lastMessageUserJson']);
   const bfInfo = VeloraExtension.prototype.getInfo;
@@ -6084,6 +6446,9 @@
       bfBlock('bfCloudlinkConnected', Scratch.BlockType.BOOLEAN, "bridge connection active in [CHANNEL] of [SERVER]?", { CHANNEL: bfArg('global-chat'), SERVER: bfArg('https://chat.ikelene.net') }),
       bfBlock('bfMessageFromCloudlink', Scratch.BlockType.BOOLEAN, "latest post originated through CloudLink?"),
     ];
+    // Communities moved to Bonfire servers, so the raw routes for Nookara's own (now read-only) communities are DEPRECATED:
+    // hidden from the palette but still registered, so projects that already use them keep loading. Use the Bonfire blocks
+    // (or "call [METHOD] [PATH] on [URL]") for the same things on a Bonfire server.
     let category = '';
     for (const spec of VELORA_ROUTES) {
       const next = spec.path.startsWith('/groups') ? 'groups' : spec.path.startsWith('/im') ? 'direct messages' : (spec.path.split('/')[2] || 'groups');
@@ -6131,6 +6496,7 @@
     async chatJoinServer({ SERVER }) {
       this._requireScope(SCOPES.CHAT);
       const ref = Scratch.Cast.toString(SERVER).trim().split('/').pop();
+      // a server ID (s...) / one listed in Discover, or an invite code
       let d = await this._bfRequest(`/chat/servers/${encodeURIComponent(ref)}/join`, 'POST');
       if (d.error === 'server_not_found') d = await this._bfRequest(`/chat/join/${encodeURIComponent(ref)}`, 'POST');
       this._lastActionOutput = JSON.stringify(d); this._lastActionSuccess = !d.error;
@@ -6190,6 +6556,7 @@
       const { c } = await this._chatChannel(CHANNEL, SERVER).catch(() => ({ c: null }));
       return !!c?.can_post;
     },
+    // hats: needs to know the channel's ID, which is looked up (and then remembered) the first time
     whenChatMessage({ CHANNEL, SERVER }) {
       const key = `${Scratch.Cast.toString(SERVER).trim().toLowerCase()}/${Scratch.Cast.toString(CHANNEL).trim().replace(/^#/, '').toLowerCase()}`;
       this._chatHatIds = this._chatHatIds || {};
@@ -6224,6 +6591,7 @@
       return JSON.stringify(c ? Object.keys(this._chatTyping[c.cid] || {}).filter(u => this._chatTyping[c.cid][u] > now) : []);
     },
 
+    // ── status + rich presence ──
     rpSet({ TYPE, NAME, DETAILS, STATE }) {
       if (!this._authenticated) throw new Error('Not logged in');
       const prev = this._rich || {};
@@ -6329,6 +6697,8 @@
       if (array ? !Array.isArray(parsed) : !parsed || Array.isArray(parsed) || typeof parsed !== 'object') throw new Error(array ? 'Expected a JSON array.' : 'Expected a JSON object.');
       return parsed;
     },
+    // which scope a request path needs (the server checks too; this just makes the block fail fast with a proper message).
+    // Only /chat, /groups and the Bonfire account routes are 'Chat Messaging'; the public bot gallery + server directory need nothing and Instant Messages has its own pair.
     _bfScopeFor(path, method) {
       const p = Scratch.Cast.toString(path).split('?')[0];
       if (method === 'GET' && (/^\/bonfire\/bots\/gallery(\/[^/]+)?$/.test(p) || p === '/bonfire/directory')) return 0;
@@ -6553,8 +6923,10 @@
       case 'voice_sound': if (msg.sound?.url && this._rtc) { const audio = new Audio(msg.sound.url); audio.volume = Math.min(1, this._vGlobal / 100); audio.play().catch(() => {}); } return;
     }
     bfHandleWS.call(this, msg);
+    // Community chat is subscribed only on explicitly connected instance gateways.
   };
 
+  // use the checked HTTP contract for the convenient name-based blocks too
   VeloraExtension.prototype._chatServer = async function (ref) {
     this._bfInit();
     return this._bfRequest(`/chat/servers/${encodeURIComponent(bfString(ref).trim())}`);
@@ -6704,6 +7076,8 @@
         const mid = Scratch.Cast.toString(e.transceiver.mid), ref = r.refs.get(mid);
         if (!ref || this._rtc !== r) return;
         const stream = new MediaStream([e.track]);
+        // Chromium needs an active media element to start decoding remote RTC audio.
+        // Output goes through the gain graph so volume above 100 percent also works.
         const audio = new Audio(); audio.srcObject = stream; audio.muted = true;
         audio.play().catch(() => {}); r.received.set(mid, audio);
         const source = this._vAudio.createMediaStreamSource(stream);
@@ -6772,6 +7146,8 @@
       this._wsSend({ type: 'call_user', to: this._callData.to, callId });
     };
   }
+  // The former account notes endpoint was retired. Keep existing projects working
+  // using the account's private Nookara storage, separately from project saves.
   if (VeloraExtension.prototype.getProfileNote) {
     const notePath = user => `/storage/velora_extension_profile_notes_v1/${encodeURIComponent(bfString(user).trim().toLowerCase())}`;
     VeloraExtension.prototype.getProfileNote = async function ({ USER }) {
@@ -6790,8 +7166,34 @@
     };
   }
 
+
+  // ─────────────────────────────────────────────────────────────────────────────────────────────
+  // Bonfire communities (v1.8.0): explicit connections; projects manage retries
+  //
+  // Communities no longer live on Nookara. Each one lives on a Bonfire server ("instance": chat.ikelene.net, a hosted
+  // *.ikelene.net server, or a self-hosted one) and Nookara is just the identity provider. So every block here picks the
+  // server with a [URL] (or, in the older blocks, a [SERVER] that is either a URL or the name / id of a community on a
+  // server you're explicitly connected to). Under the hood: Nookara gives us a short-lived instance token (POST /bonfire/instance-token,
+  // needs Chat Messaging), we swap it for an instance session and then talk to INSTANCE/api/v1 + INSTANCE/gateway directly.
+  // The sessions stay in memory only; a project just remembers which server URLs it uses.
+  // Use connect to instance explicitly, then JSON reporters to obtain server and channel IDs.
+  // Gateway failures never reconnect: inspect connection state/error and retry from the project.
+  // The joined reporter uses public discovery for disconnected rail entries (joined: null).
+  //
+  // Permissions: nothing here is "required". A project only REQUESTS scopes (Permission Integer from
+  // nookara.cc/permissions) and the person signing in may untick any of them. A block whose scope is missing just
+  // says so (see _missingScopeText) and everything else keeps working.
+  //
+  // MESSAGE SIGNING: when the person allowed 'Sign Messages' (SIGN_MESSAGES = 32768) and the server login is a Nookara
+  // account, every message / reply / edit sent through these blocks is signed (PROTOCOL §8): the account's one Ed25519
+  // signing key is fetched from Nookara (GET /bonfire/signing-key), imported as a NON-extractable WebCrypto key, kept in
+  // memory only, and used to sign "bonfire-msg-v1\n" + canonical(payload). Without that scope - or on local-account servers -
+  // messages are sent unsigned, which every server accepts (signing is never required). Webhook posts, bot posts and system
+  // messages are never signed. A rotated key is picked up automatically (we refetch once on bad_signature).
+
   const instanceBlockUrl = 'https://chat.ikelene.net';
   const U = instanceBlockUrl;
+  // [opcode, type, text, { ARG: default | [default, menu] }]. A plain string entry is a section label.
   const instanceBlocks = [
     'Bonfire servers: connect',
     ['biConnect', 'COMMAND', 'connect to Bonfire server [URL]', { URL: U }],
@@ -6882,11 +7284,35 @@
     ['biSendAttachments', 'COMMAND', 'send [TEXT] with attachments JSON [ATTACHMENTS] to channel [CHANNEL] on [URL]', { TEXT: '', ATTACHMENTS: '[]', CHANNEL: 'general', URL: U }],
     ['biSendFile', 'COMMAND', 'send [TEXT] with file [FILE] named [FILENAME] to channel [CHANNEL] on [URL]', { TEXT: '', FILE: '', FILENAME: 'file.png', CHANNEL: 'general', URL: U }],
 
+    'Bonfire stickers',
+    ['biStickers', 'REPORTER', 'stickers of [URL] as JSON', { URL: U }],
+    ['biSendSticker', 'COMMAND', 'send sticker [STICKER] to channel [CHANNEL] on [URL]', { STICKER: '', CHANNEL: 'general', URL: U }],
+    ['biAddSticker', 'REPORTER', 'add sticker named [NAME] from file [FILE] filename [FILENAME] on [URL] as JSON', { NAME: 'sticker', FILE: '', FILENAME: 'sticker.png', URL: U }],
+    ['biRenameSticker', 'COMMAND', 'rename sticker [STICKER] to [NAME] on [URL]', { STICKER: '', NAME: 'sticker', URL: U }],
+    ['biDeleteSticker', 'COMMAND', 'delete sticker [STICKER] on [URL]', { STICKER: '', URL: U }],
+    ['biMessageSticker', 'REPORTER', 'sticker of message [ID] in channel [CHANNEL] on [URL] as JSON', { ID: '', CHANNEL: 'general', URL: U }],
+
     'Bonfire bots',
     ['biBots', 'REPORTER', 'bots on [URL] as JSON', { URL: U }],
     ['biCreateBot', 'REPORTER', 'create bot [NAME] description [DESCRIPTION] on [URL] (shows the token once) as JSON', { NAME: 'MyBot', DESCRIPTION: '', URL: U }],
     ['biRemoveBot', 'COMMAND', 'remove bot [BOT] from [URL]', { BOT: '', URL: U }],
     ['biAddGalleryBot', 'COMMAND', 'add gallery bot [BOT] to the community on [URL]', { BOT: '', URL: U }],
+
+    'Bonfire bot DMs (Nookara)',
+    ['biOpenBotDm', 'COMMAND', 'open DM with user [ID] as bot [TOKEN]', { ID: '', TOKEN: '' }],
+    ['biSendBotDm', 'COMMAND', 'send DM [TEXT] to user [ID] as bot [TOKEN]', { TEXT: 'Hello!', ID: '', TOKEN: '' }],
+    ['biSendBotDmChannel', 'COMMAND', 'send DM [TEXT] in DM channel [CHANNEL] as bot [TOKEN]', { TEXT: 'Hello!', CHANNEL: '', TOKEN: '' }],
+    ['biBotDmChannelFor', 'REPORTER', 'DM channel id of user id [ID]', { ID: '' }],
+    ['biBotDmConnect', 'COMMAND', 'connect bot [TOKEN] to receive DMs', { TOKEN: '' }],
+    ['biBotDmDisconnect', 'COMMAND', 'stop receiving DMs as bot', {}],
+    ['biBotDmConnected', 'BOOLEAN', 'bot receiving DMs?', {}],
+    ['biWhenBotDm', 'HAT', 'when bot gets a DM', {}],
+    ['biBotDmText', 'REPORTER', 'text of last DM to the bot', {}],
+    ['biBotDmAuthor', 'REPORTER', 'author name of last DM to the bot', {}],
+    ['biBotDmAuthorId', 'REPORTER', 'author id of last DM to the bot', {}],
+    ['biBotDmChannel', 'REPORTER', 'DM channel id of last DM to the bot', {}],
+    ['biBotDmJson', 'REPORTER', 'last DM to the bot as JSON', {}],
+    ['biBotDmError', 'REPORTER', 'last bot DM error', {}],
 
     'Bonfire advanced',
     ['biApi', 'REPORTER', 'call [METHOD] [PATH] on [URL] options JSON [OPTIONS]', { METHOD: ['GET', 'biMethods'], PATH: '/servers', URL: U, OPTIONS: '{}' }],
@@ -6903,6 +7329,7 @@
       if (type === 'HAT' && opcode === 'biWhenMessage') block.isEdgeActivated = false;
       bonfire.push(block);
     }
+    // the Bonfire blocks sit right after the older community blocks, before Status & Rich Presence
     const at = info.blocks.findIndex(b => b && b.blockType === Scratch.BlockType.LABEL && b.text === 'Status & Rich Presence');
     info.blocks.splice(at < 0 ? info.blocks.length : at, 0, ...bonfire);
     info.blocks.push({ blockType: Scratch.BlockType.LABEL, text: 'Extension' });
@@ -6914,8 +7341,8 @@
       biChannelTypes: { acceptReporters: true, items: ['text', 'voice', 'logs', 'welcome', 'link', 'starboard'] },
       biChannelProps: { acceptReporters: true, items: ['id', 'name', 'type', 'topic', 'locked', 'can post', 'JSON'] },
       biMethods: { acceptReporters: false, items: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] },
-      biEvents: { acceptReporters: true, items: ['any', 'chat_message', 'chat_message_update', 'chat_message_delete', 'chat_reactions', 'chat_typing', 'chat_pins_update', 'chat_mention', 'chat_member_update', 'chat_channels_update', 'chat_roles_update', 'chat_server_update', 'chat_identity_update', 'chat_join_request', 'chat_join_result', 'chat_starboard', 'chat_voice_state', 'instance_restarting', 'game_status', 'game_console'] },
-      biLastProps: { acceptReporters: true, items: ['text', 'author name', 'author id', 'alias name', 'alias avatar', 'alias unmarked?', 'channel', 'id', 'reply to', 'signed', 'server says verified', 'attachments', 'JSON'] },
+      biEvents: { acceptReporters: true, items: ['any', 'chat_message', 'chat_message_update', 'chat_message_delete', 'chat_reactions', 'chat_typing', 'chat_pins_update', 'chat_mention', 'chat_member_update', 'chat_channels_update', 'chat_roles_update', 'chat_server_update', 'chat_identity_update', 'chat_join_request', 'chat_join_result', 'chat_starboard', 'chat_stickers_update', 'chat_voice_state', 'instance_restarting', 'game_status', 'game_console'] },
+      biLastProps: { acceptReporters: true, items: ['text', 'author name', 'author display name', 'author id', 'alias name', 'alias avatar', 'alias unmarked?', 'channel', 'id', 'reply to', 'signed', 'server says verified', 'attachments', 'JSON'] },
     };
     return info;
   };
@@ -6938,7 +7365,9 @@
     return id;
   };
   const instanceBody = value => bfString(value).replace(/\r\n/g, '\n').slice(0, 4000);
+  // what a signed attachment is bound to: the upload's sha256, or the stored URL for hash-less link GIFs (PROTOCOL §8)
   const instanceAttachHash = item => item && item.sha256 ? bfString(item.sha256) : 'url:' + bfString(item && item.url).slice(0, 512);
+  // uploads answer { url, name, size, mime, type, sha256, width?, height? }; a message attachment is { url, type, name, size, width?, height?, sha256 }
   const instanceAttachment = item => {
     if (!item || typeof item !== 'object' || !item.url) throw new Error('Attachments need a url (use the upload block to make one).');
     const out = { url: bfString(item.url), type: bfString(item.type || 'file'), name: bfString(item.name || 'file'), size: Number(item.size) || 0 };
@@ -6957,12 +7386,13 @@
     return list.map(instanceAttachment);
   };
   const instanceNumber = (value, fallback = 0) => { const n = Number(bfString(value).trim()); return Number.isFinite(n) ? n : fallback; };
+  // an invite can be pasted as a bare code or as a Nookara/Bonfire invite link (VELORA/chat#/i/<instance>/invite/<code>)
   const instanceParseInvite = (code, url) => {
     const text = bfString(code).trim();
     const link = text.match(/#\/i\/([^/]+)\/invite\/([A-Za-z0-9_-]+)/);
     if (link) {
       let origin = link[1];
-      try { origin = decodeURIComponent(origin); } catch {  }
+      try { origin = decodeURIComponent(origin); } catch { /* keep as is */ }
       return { origin: /^https?:\/\//i.test(origin) ? origin : 'https://' + origin, code: link[2] };
     }
     return { origin: bfString(url).trim(), code: text.split('/').pop() };
@@ -6991,6 +7421,7 @@
           throw error;
         }
         this._lastActionSuccess = true;
+        // auth responses contain sessions, so never expose them in operation reporters
         this._lastActionOutput = JSON.stringify(path.startsWith('/api/v1/auth/') ? { ok: true } : data);
         return data;
       } catch (error) {
@@ -7003,7 +7434,9 @@
       if (!state?.session || !state.ready) throw new Error(`not connected to ${this._instanceOrigin(value)}: use the connect block`);
       return state;
     },
+    // Every operation requires a project-initiated connection; reporters never sign in.
     async _instanceEnsure(value) { return this._instanceState(value); },
+    // Join commands are project-initiated, so they may connect first; otherwise a join before connecting silently fails and leaves a non-member.
     async _instanceForJoin(value) {
       const known = this._instanceLookup(value);
       if (known?.session && known.ready) return known;
@@ -7038,6 +7471,8 @@
       this._instanceSigningKey = null;
       this._instanceSigningToken = null;
     },
+    // credentials = local-account login; opts.noJoin = connect without joining the community (invite flow);
+    // opts.remember === false = don't save this URL in the project (used when connecting to the person's own server list)
     _connectInstance(value, credentials = null, opts = {}) {
       const origin = this._instanceOrigin(value);
       this._instancePending ||= new Map();
@@ -7063,6 +7498,7 @@
           auth = await this._instanceFetch(origin, credentials.register ? '/api/v1/auth/register' : '/api/v1/auth/login', 'POST', { username: credentials.username, password: credentials.password });
         } else {
           if (state.discovery.accounts_mode !== 'velora') throw new Error('This server needs a local username and password.');
+          // only this Nookara-side request sees the account token
           const response = await fetch(SERVER_HTTP + '/bonfire/instance-token', {
             method: 'POST', credentials: 'omit', redirect: 'error', signal: AbortSignal.timeout(15000),
             headers: { Authorization: `Bearer ${this._token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ instance: origin }),
@@ -7103,6 +7539,7 @@
       state.detail = detail; state.detailAt = Date.now();
       return detail;
     },
+    // short-lived cache so a script that asks several questions in a row doesn't refetch the community each time
     async _instanceDetailCached(state) {
       if (state.detail && Date.now() - state.detailAt < 3000) return state.detail;
       return this._instanceDetail(state);
@@ -7117,6 +7554,7 @@
       if (!channel) throw new Error('Channel not found on the connected instance: use the connect block and the channel ID.');
       return channel;
     },
+    // sync channel lookup for hats (only knows channels of an already loaded community)
     _instanceChannelSync(state, value) {
       const ref = bfString(value).trim();
       const name = ref.replace(/^#/, '').toLowerCase();
@@ -7167,6 +7605,7 @@
         if (frame.type === 'auth_error' || frame.type === 'error' || (frame.type === 'chat_error' && !state.ready)) { fail(new Error(frame.error || frame.message || 'Instance gateway error.')); return; }
         if (frame.type === 'pong') { pong = true; return; }
         if (this._voiceInstance19 === state && (frame.type?.startsWith('chat_rtc_') || frame.nonce && this._rtc?.pending.has(frame.nonce))) this._rtcMessage(frame, frame.type === 'chat_error');
+        // every other frame becomes an event the "when [EVENT] happens" hat can see
         if (frame.type && frame.type !== 'auth_success') {
           state.eventFlags.add(frame.type); state.eventFlags.add('any'); state.lastEvent = frame;
           this._bfLastEvent = { ...frame, instance: state.origin };
@@ -7176,6 +7615,7 @@
           const message = frame.message;
           this._instanceRemember(state, message);
           state.last = message;
+          // keeps the older "when message received" / "latest channel post" blocks working for Bonfire servers
           state.chatEvt[message.channel] = true; this._chatEvt['*'] = true;
           this._lastChatMsg = { ...message, server: state.community?.sid || '', instance: state.origin };
           const typing = state.typing[message.channel];
@@ -7223,21 +7663,25 @@
     },
     async _instanceMessage(state, channel, value) {
       const id = instanceId(value);
+      // a bounded history query also finds older messages without paging in a loop
       const data = await this._instanceRequest(state, `/channels/${encodeURIComponent(channel.cid)}/messages?before=${BigInt(id) + 1n}&limit=1`);
       const message = (data.messages || []).find(item => bfString(item.id) === id);
       if (!message || bfString(message.channel) !== bfString(channel.cid)) throw new Error('message_not_found');
       this._instanceRemember(state, message);
       return message;
     },
+    // the issuer this instance announces in /.well-known/bonfire (velora.issuer), normalized like the server does; legacy origin when absent.
+    // Not SERVER_HTTP: the instance verifies against its own configured Nookara origin, which can differ from the domain we log in through.
     _instanceIssuer(state) {
       const announced = state.discovery?.velora?.issuer;
-      if (announced) { try { const url = new URL(String(announced).trim()); if (url.protocol === 'https:' || url.protocol === 'http:') return url.origin; } catch {  } }
+      if (announced) { try { const url = new URL(String(announced).trim()); if (url.protocol === 'https:' || url.protocol === 'http:') return url.origin; } catch { /* use the default */ } }
       return 'https://velora.ikelene.net';
     },
     _instanceCanSign(state) {
       return state.velora && state.user.kind === 'velora' && this._authenticated &&
         (this._grantedScopes & SCOPES.SIGN_MESSAGES) !== 0 && !(this._disabledScopes & SCOPES.SIGN_MESSAGES);
     },
+    // returns { kid, sig, ts, nonce } or null when this session can't / mustn't sign (see the MESSAGE SIGNING note above)
     async _instanceSignature(state, channel, body, reply, edit, attachments = []) {
       if (!this._instanceCanSign(state)) return null;
       const token = this._token;
@@ -7265,12 +7709,13 @@
         return { kid, sig, ts, nonce };
       } catch (error) { this._instanceSigningKey = null; throw error; }
     },
-    async _instanceWrite(state, channel, body, reply = null, edit = null, attachments = []) {
+    // send (edit = null) or edit (edit = message id) a message; signed when allowed, otherwise plain. Returns the stored message.
+    async _instanceWrite(state, channel, body, reply = null, edit = null, attachments = [], sticker = null) {
       for (let attempt = 0; attempt < 2; attempt++) {
         const signature = await this._instanceSignature(state, channel, body, reply, edit, attachments);
         try {
           const data = await this._instanceRequest(state, edit ? `/messages/${encodeURIComponent(edit)}` : `/channels/${encodeURIComponent(channel.cid)}/messages`, edit ? 'PATCH' : 'POST',
-            { message: body, ...(!edit ? { reply_to: reply } : {}), ...(!edit && attachments.length ? { attachments } : {}), ...(signature ? { signature } : {}) });
+            { message: body, ...(!edit ? { reply_to: reply } : {}), ...(!edit && attachments.length ? { attachments } : {}), ...(!edit && sticker ? { sticker } : {}), ...(signature ? { signature } : {}) });
           if (data.message) this._instanceRemember(state, data.message);
           return data.message || null;
         } catch (error) {
@@ -7280,6 +7725,7 @@
       }
       return null;
     },
+    // ids of people / roles: usernames and role names are accepted everywhere a block asks for them
     async _instanceMemberId(state, value) {
       const ref = bfString(value).trim().replace(/^@/, '');
       if (!ref) throw new Error('Enter a username.');
@@ -7301,6 +7747,7 @@
       if (!state.community?.sid) throw new Error('This Bonfire server has no community yet.');
       return encodeURIComponent(state.community.sid);
     },
+    // public facts about a server (discovery + instance info); uses the session when connected so admins also see the update status
     async _instanceInfoOf(url) {
       const origin = this._instanceOrigin(url);
       const cache = this._instanceInfoCache || (this._instanceInfoCache = new Map());
@@ -7309,12 +7756,13 @@
       const session = this._instances.get(origin)?.session || null;
       const discovery = await this._instanceFetch(origin, '/.well-known/bonfire');
       let info = {};
-      try { info = await this._instanceFetch(origin, '/api/v1/instance/info', 'GET', null, session); } catch {  }
+      try { info = await this._instanceFetch(origin, '/api/v1/instance/info', 'GET', null, session); } catch { /* older servers: discovery only */ }
       const entry = { at: Date.now(), discovery, info };
       cache.set(origin, entry);
       return entry;
     },
 
+    // ── connecting ──
     biConnect({ URL }) { return this._connectInstance(URL); },
     biConnectLocal({ URL, USERNAME, PASSWORD }) { return this._connectInstance(URL, { username: bfString(USERNAME), password: bfString(PASSWORD) }); },
     biRegister({ URL, USERNAME, PASSWORD }) { return this._connectInstance(URL, { register: true, username: bfString(USERNAME), password: bfString(PASSWORD) }); },
@@ -7329,6 +7777,7 @@
       if (session) await this._instanceFetch(origin, '/api/v1/auth/logout', 'POST', null, session);
     },
     biConnected({ URL }) { return !!this._instances.get(this._instanceOrigin(URL))?.ready; },
+    // the person's own server list on Nookara (follows them between devices); needs Chat Messaging
     async biMyInstances() { return JSON.stringify(await this._bfRequest('/bonfire/instances')); },
     async biSaveInstance({ URL }) {
       const origin = this._instanceOrigin(URL);
@@ -7352,6 +7801,7 @@
       return JSON.stringify(await this._bfRequest('/bonfire/directory?' + search));
     },
 
+    // ── about a server ──
     async biAbout({ PROP, URL }) {
       const { discovery: d, info } = await this._instanceInfoOf(URL);
       const b = d.build || info.build || {};
@@ -7373,6 +7823,7 @@
         case 'read only': return !!d.read_only;
         case 'hosting plan': return d.managed?.plan || '';
         case 'max upload mb': return d.max_upload_mb ?? 0;
+        // only admins of that server get an update status
         case 'update available': return !!info.update?.outdated;
         default: return JSON.stringify({ discovery: d, info });
       }
@@ -7393,6 +7844,8 @@
     },
     async biServerName({ URL }) { const state = await this._instanceEnsure(URL); return state.community?.name || state.discovery.name || ''; },
     async biMyId({ URL }) { return (await this._instanceEnsure(URL)).user.id; },
+    // Voice runs over the instance's own gateway (chat_rtc_* with room bf_<cid>). This extension can't join Bonfire-server voice
+    // yet (its audio engine is wired to the Nookara socket), so this only reports what a client needs to know.
     async biVoiceInfo({ CHANNEL, URL }) {
       const state = await this._instanceEnsure(URL), channel = await this._instanceChannel(state, CHANNEL);
       const features = (await this._instanceInfoOf(state.origin)).discovery.features || {};
@@ -7400,6 +7853,7 @@
         user_limit: channel.config?.user_limit ?? 0, allow_call_in: !!channel.config?.allow_call_in, gateway: state.origin.replace(/^http/, 'ws') + '/gateway', joinable_from_this_extension: false });
     },
 
+    // ── community ──
     async biCommunity({ URL }) { const state = await this._instanceEnsure(URL); return JSON.stringify({ ...(await this._instanceDetailCached(state)).server, instance: state.origin }); },
     async biJoin({ URL }) {
       const state = await this._instanceForJoin(URL);
@@ -7443,6 +7897,7 @@
       const ref = bfString(USER).trim().replace(/^@/, '');
       let uid = /^[vlb]:\d+$/.test(ref) ? ref : null;
       if (!uid) {
+        // a banned person isn't a member any more, so look them up in the ban list
         const bans = (await this._instanceRequest(state, `/servers/${this._instanceSid(state)}/bans`)).bans || [];
         const hit = bans.map(ban => ban.user || ban).find(user => bfString(user.username).toLowerCase() === ref.toLowerCase());
         if (!hit) throw new Error('member_not_found');
@@ -7465,6 +7920,7 @@
     biAcceptRequest({ USER, URL }) { return this._instanceResolveRequest(URL, USER, 'accept'); },
     biDenyRequest({ USER, URL }) { return this._instanceResolveRequest(URL, USER, 'deny'); },
 
+    // ── invites ──
     async biCreateInvite({ URL, SECONDS, USES }) {
       const state = await this._instanceEnsure(URL);
       const body = {};
@@ -7494,6 +7950,7 @@
     async biInvites({ URL }) { const state = await this._instanceEnsure(URL); return JSON.stringify((await this._instanceRequest(state, `/servers/${this._instanceSid(state)}/invites`)).invites || []); },
     async biDeleteInvite({ CODE, URL }) { const state = await this._instanceEnsure(URL); await this._instanceRequest(state, `/invites/${encodeURIComponent(instanceParseInvite(CODE, URL).code)}`, 'DELETE'); },
 
+    // ── channels ──
     async biChannels({ URL }) { const state = await this._instanceEnsure(URL); await this._instanceDetail(state); return JSON.stringify([...state.channels.values()]); },
     async biChannelId({ URL, NAME }) { return (await this._instanceChannel(await this._instanceEnsure(URL), NAME)).cid; },
     async biChannelProp({ PROP, CHANNEL, URL }) {
@@ -7524,12 +7981,14 @@
       state.channels.clear(); state.detailAt = 0;
     },
 
+    // ── messages ──
     async biMessages({ URL, CHANNEL }) {
       const state = await this._instanceEnsure(URL), channel = await this._instanceChannel(state, CHANNEL);
       const data = await this._instanceRequest(state, `/channels/${encodeURIComponent(channel.cid)}/messages?limit=100`);
       for (const message of data.messages || []) this._instanceRemember(state, message);
       return JSON.stringify(data.messages || []);
     },
+    // filters JSON: { "limit": 1-100, "before": <message id>, "after": <message id> }
     async biHistory({ URL, CHANNEL, QUERY }) {
       const state = await this._instanceEnsure(URL), channel = await this._instanceChannel(state, CHANNEL);
       const query = bfString(QUERY).trim() ? this._bfJson(QUERY) : {};
@@ -7583,6 +8042,7 @@
     async biEdit({ URL, CHANNEL, ID, TEXT }) {
       const state = await this._instanceEnsure(URL), channel = await this._instanceChannel(state, CHANNEL);
       const message = await this._instanceMessage(state, channel, ID);
+      // an edit is signed over the same reply target + attachments the message already has
       const reply = message.reply_to != null ? bfString(message.reply_to) : (message.reply?.id == null ? null : bfString(message.reply.id));
       await this._instanceWrite(state, channel, instanceBody(TEXT), reply, bfString(message.id), message.attachments || []);
     },
@@ -7597,6 +8057,7 @@
       const channel = bfString(CHANNEL).trim();
       return state.last.channel === channel || state.channels.get(state.last.channel)?.name.toLowerCase() === channel.replace(/^#/, '').toLowerCase();
     },
+    // polled hat: true once per event of that type, then it resets
     biWhenEvent({ EVENT, URL }) {
       const state = this._instanceLookup(URL);
       if (!state) return false;
@@ -7606,6 +8067,8 @@
     biLastText({ URL }) { return this._instanceState(URL).last?.body || ''; },
     biLastAuthor({ URL }) { return this._instanceState(URL).last?.author?.id || ''; },
     biLastAlias({ URL }) { return this._instanceState(URL).last?.alias?.name || ''; },
+    // Aliases are bot-only, so these two use a bot token on the Discord-style /bot/v1 routes (Authorization: Bot TOKEN).
+    // Never put a real bot token in a project you share: anyone who opens it can read it.
     async _botAliasRequest(URL, TOKEN, path, method, body) {
       const origin = this._instanceOrigin(URL), token = bfString(TOKEN).trim();
       if (!token) throw new Error('Enter the bot token.');
@@ -7633,6 +8096,102 @@
       const alias = bfString(NAME).trim() ? this._botAlias(NAME, AVATAR) : null;
       await this._botAliasRequest(URL, TOKEN, `/channels/${channel}/messages/${id}`, 'PATCH', { alias });
     },
+    // ---- Bot DMs on Nookara (a bot token + https://nookara.cc/chat/api/v1 and wss://nookara.cc/chat/gateway) ----
+    // A DM with a bot is never encrypted. A bot may start a DM only with someone it shares an Ember server with (and their privacy
+    // setting allows bots), or answer someone who wrote to it first. 30 messages a minute, 20 new conversations an hour, 100 a day.
+    // Never put a real bot token in a project you share: anyone who opens it can read it.
+    async _botDmRequest(TOKEN, path, method, body) {
+      const token = bfString(TOKEN).trim();
+      if (!token) throw new Error('Enter the bot token.');
+      this._lastActionSuccess = false;
+      this._botDmError = '';
+      try {
+        const response = await fetch(SERVER_HTTP + '/chat/api/v1' + path, { method, credentials: 'omit', redirect: 'error', signal: AbortSignal.timeout(15000), headers: { Authorization: `Bot ${token}`, 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+        const data = response.status === 204 ? {} : await response.json().catch(() => ({}));
+        if (!response.ok) {
+          const why = data.error === 'rate_limited' || response.status === 429 ? `The bot is sending DMs too fast. Try again in ${Math.ceil(Number(data.retry_after) || 1)} seconds.` : (data.detail || data.message || data.error || `HTTP ${response.status}`);
+          throw new Error(why);
+        }
+        this._lastActionSuccess = true;
+        return data;
+      } catch (error) {
+        this._botDmError = String(error?.message || error);
+        throw error;
+      }
+    },
+    async _botDmOpenWith(TOKEN, ID) {
+      const who = bfString(ID).trim().replace(/^@/, '');
+      if (!who) throw new Error('Enter the user id (or username).');
+      const channel = await this._botDmRequest(TOKEN, '/users/@me/channels', 'POST', /^\d{1,18}$/.test(who) ? { recipient_id: who } : { username: who });
+      return channel.id;
+    },
+    async biOpenBotDm({ ID, TOKEN }) { await this._botDmOpenWith(TOKEN, ID); },
+    async biSendBotDm({ TEXT, ID, TOKEN }) {
+      const channel = await this._botDmOpenWith(TOKEN, ID);
+      await this._botDmRequest(TOKEN, `/channels/${channel}/messages`, 'POST', { content: bfString(TEXT) });
+    },
+    async biSendBotDmChannel({ TEXT, CHANNEL, TOKEN }) {
+      const channel = bfString(CHANNEL).trim();
+      if (!/^\d+$/.test(channel)) throw new Error('Enter the numeric DM channel id.');
+      await this._botDmRequest(TOKEN, `/channels/${channel}/messages`, 'POST', { content: bfString(TEXT) });
+    },
+    biBotDmChannelFor({ ID }) { const id = bfString(ID).trim(); return /^\d{1,12}$/.test(id) ? String(1000000000000 + Number(id)) : ''; },
+    biBotDmConnect({ TOKEN }) {
+      const token = bfString(TOKEN).trim();
+      if (!token) throw new Error('Enter the bot token.');
+      this.biBotDmDisconnect();
+      const st = { token, ws: null, ready: false, closed: false, tries: 0, me: null, beat: null, retry: null };
+      this._botDmGate = st;
+      this._botDmError = '';
+      this._botDmDial(st);
+    },
+    _botDmDial(st) {
+      if (st.closed) return;
+      let ws;
+      try { ws = new WebSocket(SERVER_WS + '/chat/gateway'); } catch (error) { this._botDmError = String(error?.message || error); return; }
+      st.ws = ws;
+      ws.onmessage = event => {
+        let frame;
+        try { frame = JSON.parse(event.data); } catch { return; }
+        if (frame.op === 10) {
+          clearInterval(st.beat);
+          st.beat = setInterval(() => { if (ws.readyState === 1) ws.send(JSON.stringify({ op: 1, d: null })); }, Math.max(5000, Number(frame.d?.heartbeat_interval) || 41250));
+          ws.send(JSON.stringify({ op: 2, d: { token: st.token, intents: 0, properties: {} } }));
+          return;
+        }
+        if (frame.op !== 0) return;
+        if (frame.t === 'READY') { st.ready = true; st.tries = 0; st.me = frame.d?.user?.id == null ? null : String(frame.d.user.id); this._botDmError = ''; return; }
+        const m = frame.d;
+        // a DM has no guild_id and bonfire.dm; the bot's own sent messages come back too, so skip them
+        if (frame.t === 'MESSAGE_CREATE' && m && !m.guild_id && m.bonfire?.dm && String(m.author?.id) !== st.me) { this._botDmLast = m; this._evtBotDm = true; }
+      };
+      ws.onerror = () => { this._botDmError = 'Could not reach the Nookara bot gateway.'; };
+      ws.onclose = event => {
+        clearInterval(st.beat);
+        st.ready = false;
+        if (st.closed) return;
+        if (event.code === 4004) { st.closed = true; this._botDmError = 'The bot token was refused.'; return; }
+        st.tries += 1;
+        st.retry = setTimeout(() => this._botDmDial(st), Math.min(30000, 1000 * 2 ** Math.min(st.tries, 5)));
+      };
+    },
+    biBotDmDisconnect() {
+      const st = this._botDmGate;
+      this._botDmGate = null;
+      if (!st) return;
+      st.closed = true;
+      clearInterval(st.beat);
+      clearTimeout(st.retry);
+      try { st.ws?.close(); } catch { /* already closed */ }
+    },
+    biBotDmConnected() { return !!this._botDmGate?.ready; },
+    biWhenBotDm() { const v = !!this._evtBotDm; this._evtBotDm = false; return v; },
+    biBotDmText() { return this._botDmLast?.content || ''; },
+    biBotDmAuthor() { return this._botDmLast?.author?.username || ''; },
+    biBotDmAuthorId() { return this._botDmLast?.author?.id == null ? '' : String(this._botDmLast.author.id); },
+    biBotDmChannel() { return this._botDmLast?.channel_id == null ? '' : String(this._botDmLast.channel_id); },
+    biBotDmJson() { return JSON.stringify(this._botDmLast || {}); },
+    biBotDmError() { return this._botDmError || ''; },
     biLastId({ URL }) { return this._instanceState(URL).last?.id || ''; },
     biLastChannel({ URL }) { return this._instanceState(URL).last?.channel || ''; },
     biLastProp({ PROP, URL }) {
@@ -7641,20 +8200,23 @@
       switch (bfString(PROP).toLowerCase()) {
         case 'text': return m.body || '';
         case 'author name': return m.author?.username || m.author?.display_name || '';
+        case 'author display name': return m.author?.display_name || m.author?.username || '';
         case 'author id': return m.author?.id || '';
         case 'alias name': return m.alias?.name || '';
         case 'alias avatar': return m.alias?.avatar_url || '';
-        case 'alias unmarked?': return !!m.alias?.unmarked;
+        case 'alias unmarked?': return !!m.alias?.unmarked; // the server lets this bot's aliases show with no mark (Danger zone setting)
         case 'channel': return m.channel || '';
         case 'id': return m.id || '';
         case 'reply to': return m.reply_to != null ? bfString(m.reply_to) : (m.reply?.id == null ? '' : bfString(m.reply.id));
         case 'signed': return !!m.signature;
+        // the server's own verdict (clients are meant to verify against Nookara's keys themselves; this extension does not)
         case 'server says verified': return m.verified === true;
         case 'attachments': return JSON.stringify(m.attachments || []);
         default: return JSON.stringify(m);
       }
     },
 
+    // ── media ──
     async _instanceUpload(state, channel, dataUri, filename) {
       if (state.velora) this._requireScope(SCOPES.MEDIA_UPLOAD);
       const uri = bfString(dataUri);
@@ -7678,6 +8240,7 @@
       const state = await this._instanceEnsure(URL), channel = await this._instanceChannel(state, CHANNEL);
       return JSON.stringify(instanceAttachment(await this._instanceUpload(state, channel, FILE, FILENAME)));
     },
+    // asks the server itself to fetch the file (HTTPS links only), so the browser never has to download it
     async biImportMedia({ MEDIA_URL, CHANNEL, URL }) {
       const state = await this._instanceEnsure(URL), channel = await this._instanceChannel(state, CHANNEL);
       if (state.velora) this._requireScope(SCOPES.MEDIA_UPLOAD);
@@ -7694,9 +8257,51 @@
       await this._instanceWrite(state, channel, instanceBody(TEXT), null, null, [attachment]);
     },
 
+    // ── stickers (Ember servers, PROTOCOL 6.1.1): server-only, up to 30 per server, a sticker goes out as a message of its own ──
+    async biStickers({ URL }) { const state = await this._instanceEnsure(URL); return JSON.stringify((await this._instanceRequest(state, `/servers/${this._instanceSid(state)}/stickers`)).stickers || []); },
+    // accepts the sticker's id (tid) or its name
+    async _instanceStickerId(state, value) {
+      const ref = bfString(value).trim().replace(/^:|:$/g, '');
+      if (!ref) throw new Error('Enter a sticker name or id.');
+      if (/^t[0-9a-f]{10}$/.test(ref)) return ref;
+      const list = (await this._instanceRequest(state, `/servers/${this._instanceSid(state)}/stickers`)).stickers || [];
+      const hit = list.find(item => bfString(item.name).toLowerCase() === ref.toLowerCase());
+      if (!hit) throw new Error('No sticker with that name or id on this server.');
+      return hit.tid;
+    },
+    async biSendSticker({ STICKER, CHANNEL, URL }) {
+      const state = await this._instanceEnsure(URL), channel = await this._instanceChannel(state, CHANNEL);
+      await this._instanceWrite(state, channel, '', null, null, [], await this._instanceStickerId(state, STICKER));
+    },
+    async biAddSticker({ NAME, FILE, FILENAME, URL }) {
+      const state = await this._instanceEnsure(URL);
+      if (!/^(data:|blob:)/.test(bfString(FILE))) throw new Error('Choose a file or provide its data URI.');
+      const source = await fetch(bfString(FILE));
+      if (!source.ok) throw new Error('Could not read the file.');
+      const form = new FormData();
+      form.append('file', await source.blob(), bfString(FILENAME).trim() || 'sticker.png');
+      if (bfString(NAME).trim()) form.append('name', bfString(NAME).trim());
+      const data = await this._instanceMultipart(state, `/servers/${this._instanceSid(state)}/stickers`, form);
+      return JSON.stringify(data.sticker || data);
+    },
+    async biRenameSticker({ STICKER, NAME, URL }) {
+      const state = await this._instanceEnsure(URL);
+      await this._instanceRequest(state, `/servers/${this._instanceSid(state)}/stickers/${encodeURIComponent(await this._instanceStickerId(state, STICKER))}`, 'PATCH', { name: bfString(NAME).trim() });
+    },
+    async biDeleteSticker({ STICKER, URL }) {
+      const state = await this._instanceEnsure(URL);
+      await this._instanceRequest(state, `/servers/${this._instanceSid(state)}/stickers/${encodeURIComponent(await this._instanceStickerId(state, STICKER))}`, 'DELETE');
+    },
+    // { tid, name, url, animated } (or { tid, name: null, url: null, animated: false, deleted: true } once it was deleted); {} when the message has none
+    async biMessageSticker({ ID, CHANNEL, URL }) { const state = await this._instanceEnsure(URL); return JSON.stringify((await this._instanceMessage(state, await this._instanceChannel(state, CHANNEL), ID)).sticker || {}); },
+
+    // ── bots ──
+    // (the person's OWN bots - create / token / gallery listing - live on Nookara: see the "Nookara API: bots" blocks.
+    //  These manage the bot accounts inside one community.)
     async biBots({ URL }) { return JSON.stringify(await this._instanceRequest(await this._instanceEnsure(URL), '/bots')); },
     async biCreateBot({ NAME, DESCRIPTION, URL }) { return JSON.stringify(await this._instanceRequest(await this._instanceEnsure(URL), '/bots', 'POST', { name: bfString(NAME).trim(), description: bfString(DESCRIPTION) })); },
     async biRemoveBot({ BOT, URL }) { await this._instanceRequest(await this._instanceEnsure(URL), `/bots/${encodeURIComponent(bfString(BOT).trim())}`, 'DELETE'); },
+    // listed (gallery) bot -> this community: Nookara hands out a short-lived ticket for this server, the server checks it offline
     async biAddGalleryBot({ BOT, URL }) {
       const state = await this._instanceEnsure(URL);
       if (!state.velora) throw new Error('gallery_needs_velora_account');
@@ -7707,6 +8312,8 @@
       state.detailAt = 0;
     },
 
+    // ── anything else the server's REST API has (roles, emojis, sounds, webhooks, shop, bridges, settings ...) ──
+    // PROTOCOL.md lists the routes; the path is relative to INSTANCE/api/v1. For GET / DELETE the options become the query string.
     async biApi({ METHOD, PATH, URL, OPTIONS }) {
       const method = bfString(METHOD).trim().toUpperCase();
       if (!['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) throw new Error('Choose GET, POST, PUT, PATCH or DELETE.');
@@ -7734,21 +8341,24 @@
       this._disposeInstances();
       this._instanceURLs.clear();
       for (const value of Array.isArray(data?.instances) ? data.instances.slice(0, 100) : []) {
-        try { this._instanceURLs.add(this._instanceOrigin(value)); } catch {  }
+        try { this._instanceURLs.add(this._instanceOrigin(value)); } catch { /* skip invalid saved origins */ }
       }
       this._restoreInstances();
     },
     _restoreInstances() {
+      // Saved URLs are project configuration only. The project decides when to connect and retry.
     },
 
+    // ── the older "server" blocks: [SERVER] can now be a Bonfire server URL or the name / id of a community on a server you're connected to ──
     _bfMatchCommunity(state, key) {
       const c = state.community;
       if (!c) return false;
       let host = '';
-      try { host = new URL(state.origin).host; } catch {  }
+      try { host = new URL(state.origin).host; } catch { /* ignore */ }
       return [c.sid, c.name, state.origin, host].some(value => value && bfString(value).toLowerCase() === key);
     },
     _bfLooksLikeInstance(text) { return /^https?:\/\/[^\s/]+/i.test(text) || /^[a-z0-9-]+(\.[a-z0-9-]+)+(:\d+)?$/i.test(text); },
+    // only looks at servers that are already connected (hats poll this every frame, so it must not do any network)
     _bfResolveSync(ref) {
       const text = bfString(ref).trim();
       if (!text) return null;
@@ -7759,6 +8369,7 @@
       if (/^https?:\/\//i.test(text)) { const state = this._instanceLookup(text); if (state?.ready) return state; }
       return null;
     },
+    // Deprecated resolution never logs in or opens a socket.
     async _bfConnectMine() {},
     async _bfResolveTarget(ref) {
       const text = bfString(ref).trim();
@@ -7769,11 +8380,13 @@
       throw new Error('Server name could not be resolved on a connected instance: use the new ID-based block with instance URL, server ID and channel ID.');
     },
     _bfHatTarget(ref) { return this._bfResolveSync(ref); },
+    // game + CloudLink routes have the same shape on Nookara (/chat/...) and on a Bonfire server (/api/v1/...)
     _bfApi(d, path, method = 'GET', body = null) {
       return d.instance ? this._instanceRequest(d.instance, path, method, body) : this._bfRequest('/chat' + path, method, body);
     },
   });
 
+  // ---- hook the older blocks up to Bonfire servers ----
   {
     const proto = VeloraExtension.prototype;
     const legacy = {};
@@ -7795,6 +8408,7 @@
       return { ...(await this._instanceDetailCached(state)), instance: state };
     };
 
+    // Saved rail entries use public discovery until explicitly connected. Membership is unknown then.
     proto.chatMyServers = async function () {
       this._requireScope(SCOPES.CHAT);
       const saved = (await this._bfRequest('/bonfire/instances')).instances || [];
@@ -7835,6 +8449,7 @@
       const data = await this._instanceRequest(state, `/servers/${this._instanceSid(state)}/members`);
       return JSON.stringify(data.members);
     });
+    // Bonfire servers don't relay presence, so "active" members are the ones whose presence this client already knows from Nookara
     reroute('chatOnlineMembers', async function (state) {
       const data = await this._instanceRequest(state, `/servers/${this._instanceSid(state)}/members`);
       return JSON.stringify(data.members.filter(member => { const p = this._presence[bfString(member.username).toLowerCase()]; return p && p.status && p.status !== 'offline'; }));
@@ -7868,6 +8483,7 @@
       throw new Error('Voice on Bonfire servers runs over the server\'s own connection, which this extension can\'t join yet. Use the Bonfire app, or "voice channel info" for the details.');
     });
 
+    // hats: answered from the connected servers only (never any network)
     legacy.whenChatMessage = proto.whenChatMessage;
     proto.whenChatMessage = function ({ CHANNEL, SERVER }) {
       const state = this._bfHatTarget(SERVER);
@@ -7878,6 +8494,7 @@
       return true;
     };
 
+    // game servers + CloudLink bridges, on Nookara communities (old) or Bonfire servers
     proto._gameChannel = async function (CHANNEL, SERVER) {
       this._requireScope(SCOPES.CHAT);
       const { c, d } = await this._chatChannel(CHANNEL, SERVER);
@@ -7929,6 +8546,8 @@
     return instanceLogout.call(this);
   };
 
+  // v1.8: ID-based palette. The protocol hosts one community per instance, so validate
+  // SERVER against that instance before delegating to the existing signed REST implementation.
   const idInstanceBlocks = [];
   let idSection = '';
   for (const entry of instanceBlocks) {
@@ -8008,6 +8627,7 @@
   });
   VeloraExtension.prototype.chatChannelLocked = async function ({ CHANNEL, SERVER }) { return !!(await this._chatChannel(CHANNEL, SERVER)).c.locked; };
   VeloraExtension.prototype.chatCanPost = async function ({ CHANNEL, SERVER }) { return !!(await this._chatChannel(CHANNEL, SERVER)).c.can_post; };
+  // Keep biConnect as a deprecated alias. No deserialization, reporter or hat may initiate login.
   VeloraExtension.prototype.biConnect = VeloraExtension.prototype.biConnectInstance;
   const explicitInfo = VeloraExtension.prototype.getInfo;
   VeloraExtension.prototype.getInfo = function () {
@@ -8031,6 +8651,7 @@
     const blocks = entries.map(([opcode, type, text, args]) => ({ ...bfBlock(opcode, Scratch.BlockType[type], text,
       Object.fromEntries(Object.entries(args).map(([key, value]) => [key, Array.isArray(value) ? bfArg(value[0], value[1]) : bfArg(value)]))),
       ...(type === 'HAT' ? { isEdgeActivated: false } : {}) }));
+    // Put replacements beside their deprecated originals, preserving the section layout.
     for (const block of blocks) {
       const old = idInstanceBlocks.find(entry => entry[0] === block.opcode)?.[4];
       const marker = old || (['biServerChannels', 'biFindChannelId'].includes(block.opcode) ? 'biChannelId' :
@@ -8048,11 +8669,14 @@
     return info;
   };
 
+
+  // v1.9: existing project opcodes are the decentralized API. Resolution never connects.
   const migrationError = detail => new Error(detail + ': use the connect block and the server ID / channel ID (or an instance-scoped block).');
   const uiRoute = path => /^\/chat\/(gifs|klipy|modmail|unfurl|notify|open|settings|emojis|sounds|hooks|bridge)(\/|$)/.test(path) ||
     /^\/chat\/media(\/|$)/.test(path) && !/^\/chat\/media\/(upload|external)$/.test(path) ||
     /\/(emojis|sounds|webhooks|cloudlink)(\/|$)/.test(path) || /\/layout$/.test(path);
-  const identityRoute = path => /^\/chat\/(presence|users|dm|calls)(\/|$)/.test(path) || /^\/chat\/bots\/[^/]+\/gallery(\/|$)/.test(path);
+  // Presence, identities, Instant Messages and global bot-gallery identity remain Nookara services.
+  const identityRoute = path => /^\/chat\/(presence|users|dm|calls|personal-emojis)(\/|$)/.test(path) || /^\/chat\/bots\/[^/]+\/gallery(\/|$)/.test(path);
   const nativeSpecs = VELORA_ROUTES.filter(spec => spec.path.startsWith('/chat/') && !identityRoute(spec.path));
   const migratedOps = new Set([...bfOldChat, ...bfCoreBlocks.filter(b => b.opcode?.startsWith('chat') || ['whenChatMessage', 'whenAnyChatMessage'].includes(b.opcode)).map(b => b.opcode),
     'bfWhenEvent', 'bfEventJson', 'bfEventField', 'bfServerPermissions', 'bfChannelPermissions', 'bfHasPermission', 'bfRoles', 'bfSendReply', 'bfTypingState', 'bfJoinVoiceChannel',
@@ -8089,6 +8713,7 @@
     async _message19(id) {
       const found = [];
       for (const state of this._connected19()) {
+        // IDs have no instance slot. Ask each visible channel, rather than trusting an ambiguous cache.
         const detail = await this._instanceDetailCached(state);
         for (const channel of detail.channels || []) {
           try { const message = await this._instanceMessage(state, channel, id); if (message) found.push({ state, channel, message }); }
@@ -8145,6 +8770,8 @@
     lastMessageContent() { return this._lastChatMsg?.body || ''; },
     lastMessageUserJson() { return JSON.stringify(this._lastChatMsg?.author || {}); },
   });
+  // Every old raw community route uses the same Bonfire path/shape (PROTOCOL section 6).
+  // Select the connected instance by sid, cid, invite origin or message ID; no implicit default with multiple instances.
   for (const spec of nativeSpecs) {
     p19[spec.opcode] = uiRoute(spec.path) ? function () { return spec.blockType === 'reporter' ? '{}' : undefined; } : async function (args = {}) {
       this._lastActionSuccess = false;
@@ -8233,6 +8860,7 @@
     const channel = state && this._instanceChannelSync(state, CHANNEL);
     return state === event.state && !!channel && bfString(channel.cid) === bfString(event.frame.channel);
   };
+  // Nookara continues to carry identity/presence/IM/DM-call events, never community chat.
   const identityEvents19 = p19._handleWS;
   p19._handleWS = function (frame) {
     if (['globalMessage', 'roomMessage', 'globalMessages', 'roomMessages'].includes(frame.type)) return;
@@ -8290,6 +8918,7 @@
       if (!block?.opcode) continue;
       const spec = nativeSpecs.find(s => s.opcode === block.opcode);
       if (migratedOps.has(block.opcode)) delete block.hideFromPalette;
+      // Original instance-scoped operations are retained; their new *Ids copies are redundant.
       if (instanceBlocks.some(e => Array.isArray(e) && e[0] === block.opcode)) delete block.hideFromPalette;
       if (idInstanceBlocks.some(e => e[0] === block.opcode) || ['biConnect', 'biDisconnectInstance', 'biFindChannelId'].includes(block.opcode)) {
         block.hideFromPalette = true; reasons[block.opcode] = 'Redundant 1.8 connection or ID variant; original opcode retained as the primary block.';
@@ -8312,6 +8941,7 @@
     }
     this._paletteReasons19 = reasons;
     this._migratedOpcodes19 = [...migratedOps];
+    // Group restored blocks by their actual API area, removing labels left empty by UI hiding.
     const raw = new Set(nativeSpecs.map(spec => spec.opcode));
     const classic = info.blocks.filter(block => bfOldChat.has(block?.opcode));
     const rawBlocks = info.blocks.filter(block => raw.has(block?.opcode));
@@ -8335,6 +8965,9 @@
     return info;
   };
 
+  // A synchronous throw (e.g. 'Not logged in') can kill the block's thread without ever reporting
+  // the error, leaving the block stuck "running". Rejected promises are always reported, so turn
+  // any synchronous throw from a non-hat block into a rejection. Normal return values are untouched.
   const veloraExt = new VeloraExtension(Scratch.vm.runtime);
   for (const block of veloraExt.getInfo().blocks) {
     if (!block || typeof block !== 'object' || !block.opcode || block.blockType === Scratch.BlockType.HAT || block.blockType === Scratch.BlockType.EVENT) continue;

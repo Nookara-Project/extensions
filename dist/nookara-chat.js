@@ -13,6 +13,7 @@
   const API_VERSION = 1;
   const CORE_URL = 'https://ikelene.net/gallery/extensions/nookara-login.js';
   const SERVER_HTTP = 'https://nookara.cc';
+  const SERVER_WS   = 'wss://nookara.cc';
   const EXT_ID = 'ikelenenookarachat';
 
   class NookaraExtension {
@@ -219,6 +220,13 @@
           { opcode: 'biSendAttachments', blockType: Scratch.BlockType.COMMAND, text: 'send [TEXT] with attachments [ATTACHMENTS] in channel [CHANNEL] on [URL]', arguments: { TEXT: { type: Scratch.ArgumentType.STRING, defaultValue: '' }, ATTACHMENTS: { type: Scratch.ArgumentType.STRING, defaultValue: '[]' }, CHANNEL: { type: Scratch.ArgumentType.STRING, defaultValue: 'general' }, URL: { type: Scratch.ArgumentType.STRING, defaultValue: 'https://chat.ikelene.net' } } },
           { opcode: 'biSendFileIds', blockType: Scratch.BlockType.COMMAND, text: 'send [TEXT] with file [FILE] named [FILENAME] to channel ID [CHANNEL] on instance [URL] server ID [SERVER]', arguments: { TEXT: { type: Scratch.ArgumentType.STRING, defaultValue: '' }, FILE: { type: Scratch.ArgumentType.STRING, defaultValue: '' }, FILENAME: { type: Scratch.ArgumentType.STRING, defaultValue: 'file.png' }, CHANNEL: { type: Scratch.ArgumentType.STRING, defaultValue: 'c1' }, URL: { type: Scratch.ArgumentType.STRING, defaultValue: 'https://chat.ikelene.net' }, SERVER: { type: Scratch.ArgumentType.STRING, defaultValue: 's1' } }, hideFromPalette: true },
           { opcode: 'biSendFile', blockType: Scratch.BlockType.COMMAND, text: 'send [TEXT] with file [FILE] named [FILENAME] in channel [CHANNEL] on [URL]', arguments: { TEXT: { type: Scratch.ArgumentType.STRING, defaultValue: '' }, FILE: { type: Scratch.ArgumentType.STRING, defaultValue: '' }, FILENAME: { type: Scratch.ArgumentType.STRING, defaultValue: 'file.png' }, CHANNEL: { type: Scratch.ArgumentType.STRING, defaultValue: 'general' }, URL: { type: Scratch.ArgumentType.STRING, defaultValue: 'https://chat.ikelene.net' } } },
+          { blockType: Scratch.BlockType.LABEL, text: 'Stickers' },
+          { opcode: 'biStickers', blockType: Scratch.BlockType.REPORTER, text: 'stickers of [URL] as JSON', arguments: { URL: { type: Scratch.ArgumentType.STRING, defaultValue: 'https://chat.ikelene.net' } } },
+          { opcode: 'biSendSticker', blockType: Scratch.BlockType.COMMAND, text: 'send sticker [STICKER] to channel [CHANNEL] on [URL]', arguments: { STICKER: { type: Scratch.ArgumentType.STRING, defaultValue: '' }, CHANNEL: { type: Scratch.ArgumentType.STRING, defaultValue: 'general' }, URL: { type: Scratch.ArgumentType.STRING, defaultValue: 'https://chat.ikelene.net' } } },
+          { opcode: 'biAddSticker', blockType: Scratch.BlockType.REPORTER, text: 'add sticker named [NAME] from file [FILE] filename [FILENAME] on [URL] as JSON', arguments: { NAME: { type: Scratch.ArgumentType.STRING, defaultValue: 'sticker' }, FILE: { type: Scratch.ArgumentType.STRING, defaultValue: '' }, FILENAME: { type: Scratch.ArgumentType.STRING, defaultValue: 'sticker.png' }, URL: { type: Scratch.ArgumentType.STRING, defaultValue: 'https://chat.ikelene.net' } } },
+          { opcode: 'biRenameSticker', blockType: Scratch.BlockType.COMMAND, text: 'rename sticker [STICKER] to [NAME] on [URL]', arguments: { STICKER: { type: Scratch.ArgumentType.STRING, defaultValue: '' }, NAME: { type: Scratch.ArgumentType.STRING, defaultValue: 'sticker' }, URL: { type: Scratch.ArgumentType.STRING, defaultValue: 'https://chat.ikelene.net' } } },
+          { opcode: 'biDeleteSticker', blockType: Scratch.BlockType.COMMAND, text: 'delete sticker [STICKER] on [URL]', arguments: { STICKER: { type: Scratch.ArgumentType.STRING, defaultValue: '' }, URL: { type: Scratch.ArgumentType.STRING, defaultValue: 'https://chat.ikelene.net' } } },
+          { opcode: 'biMessageSticker', blockType: Scratch.BlockType.REPORTER, text: 'sticker of message [ID] in channel [CHANNEL] on [URL] as JSON', arguments: { ID: { type: Scratch.ArgumentType.STRING, defaultValue: '' }, CHANNEL: { type: Scratch.ArgumentType.STRING, defaultValue: 'general' }, URL: { type: Scratch.ArgumentType.STRING, defaultValue: 'https://chat.ikelene.net' } } },
           { opcode: 'biBotsIds', blockType: Scratch.BlockType.REPORTER, text: 'bots on instance [URL] server ID [SERVER] as JSON', arguments: { URL: { type: Scratch.ArgumentType.STRING, defaultValue: 'https://chat.ikelene.net' }, SERVER: { type: Scratch.ArgumentType.STRING, defaultValue: 's1' } }, hideFromPalette: true },
           { blockType: Scratch.BlockType.LABEL, text: 'Bots' },
           { opcode: 'biBots', blockType: Scratch.BlockType.REPORTER, text: 'bots on [URL] as JSON', arguments: { URL: { type: Scratch.ArgumentType.STRING, defaultValue: 'https://chat.ikelene.net' } } },
@@ -228,6 +236,21 @@
           { opcode: 'biRemoveBot', blockType: Scratch.BlockType.COMMAND, text: 'remove bot [BOT] from [URL]', arguments: { BOT: { type: Scratch.ArgumentType.STRING, defaultValue: '' }, URL: { type: Scratch.ArgumentType.STRING, defaultValue: 'https://chat.ikelene.net' } } },
           { opcode: 'biAddGalleryBotIds', blockType: Scratch.BlockType.COMMAND, text: 'add gallery bot [BOT] to the community on instance [URL] server ID [SERVER]', arguments: { BOT: { type: Scratch.ArgumentType.STRING, defaultValue: '' }, URL: { type: Scratch.ArgumentType.STRING, defaultValue: 'https://chat.ikelene.net' }, SERVER: { type: Scratch.ArgumentType.STRING, defaultValue: 's1' } }, hideFromPalette: true },
           { opcode: 'biAddGalleryBot', blockType: Scratch.BlockType.COMMAND, text: 'add bot [BOT] from the gallery to [URL]', arguments: { BOT: { type: Scratch.ArgumentType.STRING, defaultValue: '' }, URL: { type: Scratch.ArgumentType.STRING, defaultValue: 'https://chat.ikelene.net' } } },
+          { blockType: Scratch.BlockType.LABEL, text: 'Bonfire bot DMs (Nookara)' },
+          { opcode: 'biOpenBotDm', blockType: Scratch.BlockType.COMMAND, text: 'open DM with user [ID] as bot [TOKEN]', arguments: { ID: { type: Scratch.ArgumentType.STRING, defaultValue: '' }, TOKEN: { type: Scratch.ArgumentType.STRING, defaultValue: '' } } },
+          { opcode: 'biSendBotDm', blockType: Scratch.BlockType.COMMAND, text: 'send DM [TEXT] to user [ID] as bot [TOKEN]', arguments: { TEXT: { type: Scratch.ArgumentType.STRING, defaultValue: 'Hello!' }, ID: { type: Scratch.ArgumentType.STRING, defaultValue: '' }, TOKEN: { type: Scratch.ArgumentType.STRING, defaultValue: '' } } },
+          { opcode: 'biSendBotDmChannel', blockType: Scratch.BlockType.COMMAND, text: 'send DM [TEXT] in DM channel [CHANNEL] as bot [TOKEN]', arguments: { TEXT: { type: Scratch.ArgumentType.STRING, defaultValue: 'Hello!' }, CHANNEL: { type: Scratch.ArgumentType.STRING, defaultValue: '' }, TOKEN: { type: Scratch.ArgumentType.STRING, defaultValue: '' } } },
+          { opcode: 'biBotDmChannelFor', blockType: Scratch.BlockType.REPORTER, text: 'DM channel id of user id [ID]', arguments: { ID: { type: Scratch.ArgumentType.STRING, defaultValue: '' } } },
+          { opcode: 'biBotDmConnect', blockType: Scratch.BlockType.COMMAND, text: 'connect bot [TOKEN] to receive DMs', arguments: { TOKEN: { type: Scratch.ArgumentType.STRING, defaultValue: '' } } },
+          { opcode: 'biBotDmDisconnect', blockType: Scratch.BlockType.COMMAND, text: 'stop receiving DMs as bot' },
+          { opcode: 'biBotDmConnected', blockType: Scratch.BlockType.BOOLEAN, text: 'bot receiving DMs?' },
+          { opcode: 'biWhenBotDm', blockType: Scratch.BlockType.HAT, text: 'when bot gets a DM' },
+          { opcode: 'biBotDmText', blockType: Scratch.BlockType.REPORTER, text: 'text of last DM to the bot' },
+          { opcode: 'biBotDmAuthor', blockType: Scratch.BlockType.REPORTER, text: 'author name of last DM to the bot' },
+          { opcode: 'biBotDmAuthorId', blockType: Scratch.BlockType.REPORTER, text: 'author id of last DM to the bot' },
+          { opcode: 'biBotDmChannel', blockType: Scratch.BlockType.REPORTER, text: 'DM channel id of last DM to the bot' },
+          { opcode: 'biBotDmJson', blockType: Scratch.BlockType.REPORTER, text: 'last DM to the bot as JSON' },
+          { opcode: 'biBotDmError', blockType: Scratch.BlockType.REPORTER, text: 'last bot DM error' },
           { blockType: Scratch.BlockType.LABEL, text: 'Advanced: invites' },
           { opcode: 'bfGetChatInviteCode', blockType: Scratch.BlockType.REPORTER, text: 'invite [CODE] as JSON', arguments: { CODE: { type: Scratch.ArgumentType.STRING, defaultValue: '' } }, tooltip: 'Connect to the server first, then use server and channel IDs.' },
           { blockType: Scratch.BlockType.LABEL, text: 'Advanced: servers' },
@@ -341,6 +364,7 @@
           { opcode: 'bfDeleteChatMessagesIdPin', blockType: Scratch.BlockType.COMMAND, text: 'unpin message [ID]', arguments: { ID: { type: Scratch.ArgumentType.STRING, defaultValue: '' } }, tooltip: 'Connect to the server first, then use server and channel IDs.' },
           { blockType: Scratch.BlockType.LABEL, text: 'Advanced: channels' },
           { opcode: 'bfGetChatChannelsCidPins', blockType: Scratch.BlockType.REPORTER, text: 'pinned messages in channel [CID]', arguments: { CID: { type: Scratch.ArgumentType.STRING, defaultValue: 'c1' } }, tooltip: 'Connect to the server first, then use server and channel IDs.' },
+          { opcode: 'bfGetChatChannelsCidViewers', blockType: Scratch.BlockType.REPORTER, text: 'who can see channel [CID] (JSON)', arguments: { CID: { type: Scratch.ArgumentType.STRING, defaultValue: 'c1' } }, tooltip: 'Connect to the server first, then use server and channel IDs.' },
           { opcode: 'bfGetChatUnfurl', blockType: Scratch.BlockType.REPORTER, text: 'link preview data with options [QUERY]', arguments: { QUERY: { type: Scratch.ArgumentType.STRING, defaultValue: '{}' } }, hideFromPalette: true, tooltip: 'Connect to the server first, then use server and channel IDs.' },
           { opcode: 'bfGetChatChannelsCidShop', blockType: Scratch.BlockType.REPORTER, text: 'shop in channel [CID]', arguments: { CID: { type: Scratch.ArgumentType.STRING, defaultValue: 'c1' } }, tooltip: 'Connect to the server first, then use server and channel IDs.' },
           { opcode: 'bfPostChatChannelsCidShopRid', blockType: Scratch.BlockType.COMMAND, text: 'add role [RID] to shop in channel [CID] options [OPTIONS]', arguments: { CID: { type: Scratch.ArgumentType.STRING, defaultValue: 'c1' }, RID: { type: Scratch.ArgumentType.STRING, defaultValue: '' }, OPTIONS: { type: Scratch.ArgumentType.STRING, defaultValue: '{}' } }, tooltip: 'Connect to the server first, then use server and channel IDs.' },
@@ -391,6 +415,11 @@
           { opcode: 'bfPutChatBotsIdGallery', blockType: Scratch.BlockType.COMMAND, text: 'edit gallery page of my bot [ID] options [OPTIONS]', arguments: { ID: { type: Scratch.ArgumentType.STRING, defaultValue: '' }, OPTIONS: { type: Scratch.ArgumentType.STRING, defaultValue: '{"long_description":"","tags":[],"support_url":"","links":[],"permissions":[]}' } } },
           { opcode: 'bfPostChatBotsIdGallerySubmit', blockType: Scratch.BlockType.COMMAND, text: 'submit my bot [ID] to the gallery options [OPTIONS]', arguments: { ID: { type: Scratch.ArgumentType.STRING, defaultValue: '' }, OPTIONS: { type: Scratch.ArgumentType.STRING, defaultValue: '{}' } } },
           { opcode: 'bfPostChatBotsIdGalleryWithdraw', blockType: Scratch.BlockType.COMMAND, text: 'take my bot [ID] off the gallery', arguments: { ID: { type: Scratch.ArgumentType.STRING, defaultValue: '' } } },
+          { blockType: Scratch.BlockType.LABEL, text: 'Personal emojis' },
+          { opcode: 'bfGetChatPersonalEmojis', blockType: Scratch.BlockType.REPORTER, text: 'my personal emojis (JSON)' },
+          { opcode: 'bfPostChatPersonalEmojis', blockType: Scratch.BlockType.COMMAND, text: 'add personal emoji from image [FILE] filename [FILENAME] options JSON [OPTIONS] (name goes in options)', arguments: { OPTIONS: { type: Scratch.ArgumentType.STRING, defaultValue: '{"name":"myemoji"}' }, FILE: { type: Scratch.ArgumentType.STRING, defaultValue: '' }, FILENAME: { type: Scratch.ArgumentType.STRING, defaultValue: 'emoji.png' } } },
+          { opcode: 'bfPatchChatPersonalEmojisEid', blockType: Scratch.BlockType.COMMAND, text: 'rename personal emoji [EID] options JSON [OPTIONS]', arguments: { EID: { type: Scratch.ArgumentType.STRING, defaultValue: '' }, OPTIONS: { type: Scratch.ArgumentType.STRING, defaultValue: '{"name":"newname"}' } } },
+          { opcode: 'bfDeleteChatPersonalEmojisEid', blockType: Scratch.BlockType.COMMAND, text: 'delete personal emoji [EID]', arguments: { EID: { type: Scratch.ArgumentType.STRING, defaultValue: '' } } },
       ];
       if (!this._coreApi()) blocks.unshift({ func: '_addCore', blockType: Scratch.BlockType.BUTTON, text: 'Add Nookara Login' });
       return {
@@ -411,8 +440,8 @@
           biRoleActions: { acceptReporters: false, items: ['add', 'remove'] },
           biChannelProps: { acceptReporters: true, items: ['id', 'name', 'type', 'topic', 'locked', 'can post', 'JSON'] },
           biChannelTypes: { acceptReporters: true, items: ['text', 'voice', 'logs', 'welcome', 'link', 'starboard'] },
-          biEvents: { acceptReporters: true, items: ['any', 'chat_message', 'chat_message_update', 'chat_message_delete', 'chat_reactions', 'chat_typing', 'chat_pins_update', 'chat_mention', 'chat_member_update', 'chat_channels_update', 'chat_roles_update', 'chat_server_update', 'chat_identity_update', 'chat_join_request', 'chat_join_result', 'chat_starboard', 'chat_voice_state', 'instance_restarting', 'game_status', 'game_console'] },
-          biLastProps: { acceptReporters: true, items: ['text', 'author name', 'author id', { text: 'bot name', value: 'alias name' }, { text: 'bot avatar', value: 'alias avatar' }, { text: 'bot name unmarked?', value: 'alias unmarked?' }, 'channel', 'id', 'reply to', 'signed', { text: 'verified', value: 'server says verified' }, 'attachments', 'JSON'] },
+          biEvents: { acceptReporters: true, items: ['any', 'chat_message', 'chat_message_update', 'chat_message_delete', 'chat_reactions', 'chat_typing', 'chat_pins_update', 'chat_mention', 'chat_member_update', 'chat_channels_update', 'chat_roles_update', 'chat_server_update', 'chat_identity_update', 'chat_join_request', 'chat_join_result', 'chat_starboard', 'chat_stickers_update', 'chat_voice_state', 'instance_restarting', 'game_status', 'game_console'] },
+          biLastProps: { acceptReporters: true, items: ['text', 'author name', 'author display name', 'author id', { text: 'bot name', value: 'alias name' }, { text: 'bot avatar', value: 'alias avatar' }, { text: 'bot name unmarked?', value: 'alias unmarked?' }, 'channel', 'id', 'reply to', 'signed', { text: 'verified', value: 'server says verified' }, 'attachments', 'JSON'] },
           biMethods: { acceptReporters: false, items: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] },
           bfEvents: { acceptReporters: true, items: ['any', 'chat_ready', 'chat_message', 'chat_message_update', 'chat_message_delete', 'chat_reactions', 'chat_pins_update', 'chat_starboard', 'chat_typing', 'chat_read', 'chat_server_update', 'chat_channels_update', 'chat_server_removed', 'chat_roles_update', 'chat_perms_changed', 'chat_member_update', 'chat_members_stale', 'chat_emojis_update', 'chat_voice_state', 'chat_call_state', 'chat_ephemeral', 'chat_error', 'presence_update', 'im_received', 'im_edited', 'im_reactions', 'im_deleted', 'im_pins_update', 'dm_typing', 'roomMessage', 'room_message_edited', 'room_message_reactions', 'room_message_deleted', 'room_pins_update', 'group_update', 'group_removed', 'modmail', 'modmail_staff', 'voice_sound', 'voice_sound_failed', 'game_status', 'game_console', 'game_linked', 'game_unlinked'] },
           bfGameProps: { acceptReporters: true, items: ['online', 'player count', 'max players', 'players (JSON)', 'MOTD', 'version', 'last seen', 'JSON'] },
@@ -556,6 +585,10 @@
         case 'stopTyping':
           this._typingUsers = this._typingUsers.filter(u => u !== msg.user);
           break;
+        // Instant Messages
+        // an admin changed which services this account can use (applies right away)
+        // achievements (granted from any of your apps - the launcher pops them up)
+        // ── Nookara Voice ──
       }
     }
     whenGlobalMessageReceived() { const v = this._evtGlobalMsg; this._evtGlobalMsg = false; return v; }
@@ -587,6 +620,8 @@
     getRoomMessages({ ROOM }) { this._requireScope(SCOPES.CHAT); return JSON.stringify((this._roomMessages[ROOM] || []).slice(-50)); }
   }
 
+  // copy pasted from auth.js's SCOPES obj, gotta keep these two in sync by hand
+  // since this file can't just require() the server code lol
   const SCOPES = {
     PROFILE_READ: 1,
     PROFILE_SENSITIVE: 2,
@@ -594,7 +629,7 @@
     ACCOUNT_WRITE: 8,
     STORAGE_READ: 16,
     STORAGE_WRITE: 32,
-    VMAIL_READ: 64,
+    VMAIL_READ: 64,   // Instant Messages (was vMail, same bits so old tokens still work)
     VMAIL_SEND: 128,
     FRIENDS_READ: 256,
     FRIENDS_MANAGE: 512,
@@ -602,7 +637,7 @@
     CHAT: 2048,
     MEDIA_UPLOAD: 4096,
     CURRENCY_READ: 8192,
-    VOICE: 16384,
+    VOICE: 16384,     // Nookara Voice (voice rooms + calling people into them)
     SIGN_MESSAGES: 32768,
   };
   const VELORA_ROUTES = [
@@ -3099,6 +3134,119 @@
     ]
   },
   {
+    "opcode": "bfGetChatChannelsCidViewers",
+    "blockType": "reporter",
+    "text": "viewers for channel [CID]",
+    "arguments": {
+      "CID": {
+        "type": "string",
+        "defaultValue": ""
+      }
+    },
+    "method": "GET",
+    "path": "/chat/channels/:cid/viewers",
+    "params": [
+      "cid"
+    ],
+    "query": [],
+    "body": false,
+    "upload": false,
+    "scopes": [
+      2048
+    ]
+  },
+  {
+    "opcode": "bfGetChatPersonalEmojis",
+    "blockType": "reporter",
+    "text": "my personal emojis as JSON",
+    "arguments": {},
+    "method": "GET",
+    "path": "/chat/personal-emojis",
+    "params": [],
+    "query": [],
+    "body": false,
+    "upload": false,
+    "scopes": [
+      2048
+    ]
+  },
+  {
+    "opcode": "bfPostChatPersonalEmojis",
+    "blockType": "command",
+    "text": "add personal emoji options JSON [OPTIONS] file data URI [FILE] filename [FILENAME]",
+    "arguments": {
+      "OPTIONS": {
+        "type": "string",
+        "defaultValue": "{\"name\":\"myemoji\"}"
+      },
+      "FILE": {
+        "type": "string",
+        "defaultValue": ""
+      },
+      "FILENAME": {
+        "type": "string",
+        "defaultValue": "emoji.png"
+      }
+    },
+    "method": "POST",
+    "path": "/chat/personal-emojis",
+    "params": [],
+    "query": [],
+    "body": true,
+    "upload": true,
+    "scopes": [
+      2048
+    ]
+  },
+  {
+    "opcode": "bfPatchChatPersonalEmojisEid",
+    "blockType": "command",
+    "text": "rename personal emoji [EID] options JSON [OPTIONS]",
+    "arguments": {
+      "EID": {
+        "type": "string",
+        "defaultValue": ""
+      },
+      "OPTIONS": {
+        "type": "string",
+        "defaultValue": "{\"name\":\"newname\"}"
+      }
+    },
+    "method": "PATCH",
+    "path": "/chat/personal-emojis/:eid",
+    "params": [
+      "eid"
+    ],
+    "query": [],
+    "body": true,
+    "upload": false,
+    "scopes": [
+      2048
+    ]
+  },
+  {
+    "opcode": "bfDeleteChatPersonalEmojisEid",
+    "blockType": "command",
+    "text": "delete personal emoji [EID]",
+    "arguments": {
+      "EID": {
+        "type": "string",
+        "defaultValue": ""
+      }
+    },
+    "method": "DELETE",
+    "path": "/chat/personal-emojis/:eid",
+    "params": [
+      "eid"
+    ],
+    "query": [],
+    "body": false,
+    "upload": false,
+    "scopes": [
+      2048
+    ]
+  },
+  {
     "opcode": "bfGetChatUnfurl",
     "blockType": "reporter",
     "text": "link preview data with options [QUERY]",
@@ -3366,6 +3514,7 @@
       const { c } = await this._chatChannel(CHANNEL, SERVER).catch(() => ({ c: null }));
       return !!c?.can_post;
     },
+    // hats: needs to know the channel's ID, which is looked up (and then remembered) the first time
     whenChatMessage({ CHANNEL, SERVER }) {
       const key = `${Scratch.Cast.toString(SERVER).trim().toLowerCase()}/${Scratch.Cast.toString(CHANNEL).trim().replace(/^#/, '').toLowerCase()}`;
       this._chatHatIds = this._chatHatIds || {};
@@ -3598,7 +3747,9 @@
       case 'presence_update': { const key = bfString(msg.username).toLowerCase(); this._presence[key] = msg.presence; if (!msg.request) { this._presenceEvt[key] = true; this._presenceEvt['*'] = true; this._lastPresenceUser = msg.username; } return; }
     }
     bfHandleWS.call(this, msg);
+    // Community chat is subscribed only on explicitly connected instance gateways.
   };
+  // use the checked HTTP contract for the convenient name-based blocks too
   NookaraExtension.prototype._chatServer = async function (ref) {
     this._bfInit();
     return this._bfRequest(`/chat/servers/${encodeURIComponent(bfString(ref).trim())}`);
@@ -3618,6 +3769,7 @@
   NookaraExtension.prototype.bfTypingState = async function (args) { await this._bfEnsureSocket(); return bfReadyTyping.call(this, args); };
   const instanceBlockUrl = 'https://chat.ikelene.net';
   const U = instanceBlockUrl;
+  // [opcode, type, text, { ARG: default | [default, menu] }]. A plain string entry is a section label.
   const instanceBlocks = [
     'Bonfire servers: connect',
     ['biConnect', 'COMMAND', 'connect to Bonfire server [URL]', { URL: U }],
@@ -3708,11 +3860,35 @@
     ['biSendAttachments', 'COMMAND', 'send [TEXT] with attachments JSON [ATTACHMENTS] to channel [CHANNEL] on [URL]', { TEXT: '', ATTACHMENTS: '[]', CHANNEL: 'general', URL: U }],
     ['biSendFile', 'COMMAND', 'send [TEXT] with file [FILE] named [FILENAME] to channel [CHANNEL] on [URL]', { TEXT: '', FILE: '', FILENAME: 'file.png', CHANNEL: 'general', URL: U }],
 
+    'Bonfire stickers',
+    ['biStickers', 'REPORTER', 'stickers of [URL] as JSON', { URL: U }],
+    ['biSendSticker', 'COMMAND', 'send sticker [STICKER] to channel [CHANNEL] on [URL]', { STICKER: '', CHANNEL: 'general', URL: U }],
+    ['biAddSticker', 'REPORTER', 'add sticker named [NAME] from file [FILE] filename [FILENAME] on [URL] as JSON', { NAME: 'sticker', FILE: '', FILENAME: 'sticker.png', URL: U }],
+    ['biRenameSticker', 'COMMAND', 'rename sticker [STICKER] to [NAME] on [URL]', { STICKER: '', NAME: 'sticker', URL: U }],
+    ['biDeleteSticker', 'COMMAND', 'delete sticker [STICKER] on [URL]', { STICKER: '', URL: U }],
+    ['biMessageSticker', 'REPORTER', 'sticker of message [ID] in channel [CHANNEL] on [URL] as JSON', { ID: '', CHANNEL: 'general', URL: U }],
+
     'Bonfire bots',
     ['biBots', 'REPORTER', 'bots on [URL] as JSON', { URL: U }],
     ['biCreateBot', 'REPORTER', 'create bot [NAME] description [DESCRIPTION] on [URL] (shows the token once) as JSON', { NAME: 'MyBot', DESCRIPTION: '', URL: U }],
     ['biRemoveBot', 'COMMAND', 'remove bot [BOT] from [URL]', { BOT: '', URL: U }],
     ['biAddGalleryBot', 'COMMAND', 'add gallery bot [BOT] to the community on [URL]', { BOT: '', URL: U }],
+
+    'Bonfire bot DMs (Nookara)',
+    ['biOpenBotDm', 'COMMAND', 'open DM with user [ID] as bot [TOKEN]', { ID: '', TOKEN: '' }],
+    ['biSendBotDm', 'COMMAND', 'send DM [TEXT] to user [ID] as bot [TOKEN]', { TEXT: 'Hello!', ID: '', TOKEN: '' }],
+    ['biSendBotDmChannel', 'COMMAND', 'send DM [TEXT] in DM channel [CHANNEL] as bot [TOKEN]', { TEXT: 'Hello!', CHANNEL: '', TOKEN: '' }],
+    ['biBotDmChannelFor', 'REPORTER', 'DM channel id of user id [ID]', { ID: '' }],
+    ['biBotDmConnect', 'COMMAND', 'connect bot [TOKEN] to receive DMs', { TOKEN: '' }],
+    ['biBotDmDisconnect', 'COMMAND', 'stop receiving DMs as bot', {}],
+    ['biBotDmConnected', 'BOOLEAN', 'bot receiving DMs?', {}],
+    ['biWhenBotDm', 'HAT', 'when bot gets a DM', {}],
+    ['biBotDmText', 'REPORTER', 'text of last DM to the bot', {}],
+    ['biBotDmAuthor', 'REPORTER', 'author name of last DM to the bot', {}],
+    ['biBotDmAuthorId', 'REPORTER', 'author id of last DM to the bot', {}],
+    ['biBotDmChannel', 'REPORTER', 'DM channel id of last DM to the bot', {}],
+    ['biBotDmJson', 'REPORTER', 'last DM to the bot as JSON', {}],
+    ['biBotDmError', 'REPORTER', 'last bot DM error', {}],
 
     'Bonfire advanced',
     ['biApi', 'REPORTER', 'call [METHOD] [PATH] on [URL] options JSON [OPTIONS]', { METHOD: ['GET', 'biMethods'], PATH: '/servers', URL: U, OPTIONS: '{}' }],
@@ -3736,7 +3912,9 @@
     return id;
   };
   const instanceBody = value => bfString(value).replace(/\r\n/g, '\n').slice(0, 4000);
+  // what a signed attachment is bound to: the upload's sha256, or the stored URL for hash-less link GIFs (PROTOCOL §8)
   const instanceAttachHash = item => item && item.sha256 ? bfString(item.sha256) : 'url:' + bfString(item && item.url).slice(0, 512);
+  // uploads answer { url, name, size, mime, type, sha256, width?, height? }; a message attachment is { url, type, name, size, width?, height?, sha256 }
   const instanceAttachment = item => {
     if (!item || typeof item !== 'object' || !item.url) throw new Error('Attachments need a url (use the upload block to make one).');
     const out = { url: bfString(item.url), type: bfString(item.type || 'file'), name: bfString(item.name || 'file'), size: Number(item.size) || 0 };
@@ -3755,12 +3933,13 @@
     return list.map(instanceAttachment);
   };
   const instanceNumber = (value, fallback = 0) => { const n = Number(bfString(value).trim()); return Number.isFinite(n) ? n : fallback; };
+  // an invite can be pasted as a bare code or as a Nookara/Bonfire invite link (VELORA/chat#/i/<instance>/invite/<code>)
   const instanceParseInvite = (code, url) => {
     const text = bfString(code).trim();
     const link = text.match(/#\/i\/([^/]+)\/invite\/([A-Za-z0-9_-]+)/);
     if (link) {
       let origin = link[1];
-      try { origin = decodeURIComponent(origin); } catch {  }
+      try { origin = decodeURIComponent(origin); } catch { /* keep as is */ }
       return { origin: /^https?:\/\//i.test(origin) ? origin : 'https://' + origin, code: link[2] };
     }
     return { origin: bfString(url).trim(), code: text.split('/').pop() };
@@ -3788,6 +3967,7 @@
           throw error;
         }
         this._lastActionSuccess = true;
+        // auth responses contain sessions, so never expose them in operation reporters
         this._lastActionOutput = JSON.stringify(path.startsWith('/api/v1/auth/') ? { ok: true } : data);
         return data;
       } catch (error) {
@@ -3800,7 +3980,9 @@
       if (!state?.session || !state.ready) throw new Error(`not connected to ${this._instanceOrigin(value)}: use the connect block`);
       return state;
     },
+    // Every operation requires a project-initiated connection; reporters never sign in.
     async _instanceEnsure(value) { return this._instanceState(value); },
+    // Join commands are project-initiated, so they may connect first; otherwise a join before connecting silently fails and leaves a non-member.
     async _instanceForJoin(value) {
       const known = this._instanceLookup(value);
       if (known?.session && known.ready) return known;
@@ -3835,6 +4017,8 @@
       this._instanceSigningKey = null;
       this._instanceSigningToken = null;
     },
+    // credentials = local-account login; opts.noJoin = connect without joining the community (invite flow);
+    // opts.remember === false = don't save this URL in the project (used when connecting to the person's own server list)
     _connectInstance(value, credentials = null, opts = {}) {
       const origin = this._instanceOrigin(value);
       this._instancePending ||= new Map();
@@ -3860,6 +4044,7 @@
           auth = await this._instanceFetch(origin, credentials.register ? '/api/v1/auth/register' : '/api/v1/auth/login', 'POST', { username: credentials.username, password: credentials.password });
         } else {
           if (state.discovery.accounts_mode !== 'velora') throw new Error('This server needs a local username and password.');
+          // only this Nookara-side request sees the account token
           const response = await fetch(SERVER_HTTP + '/bonfire/instance-token', {
             method: 'POST', credentials: 'omit', redirect: 'error', signal: AbortSignal.timeout(15000),
             headers: { Authorization: `Bearer ${this._token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ instance: origin }),
@@ -3900,6 +4085,7 @@
       state.detail = detail; state.detailAt = Date.now();
       return detail;
     },
+    // short-lived cache so a script that asks several questions in a row doesn't refetch the community each time
     async _instanceDetailCached(state) {
       if (state.detail && Date.now() - state.detailAt < 3000) return state.detail;
       return this._instanceDetail(state);
@@ -3914,6 +4100,7 @@
       if (!channel) throw new Error('Channel not found on the connected instance: use the connect block and the channel ID.');
       return channel;
     },
+    // sync channel lookup for hats (only knows channels of an already loaded community)
     _instanceChannelSync(state, value) {
       const ref = bfString(value).trim();
       const name = ref.replace(/^#/, '').toLowerCase();
@@ -3964,6 +4151,7 @@
         if (frame.type === 'auth_error' || frame.type === 'error' || (frame.type === 'chat_error' && !state.ready)) { fail(new Error(frame.error || frame.message || 'Instance gateway error.')); return; }
         if (frame.type === 'pong') { pong = true; return; }
         if (this._voiceInstance19 === state && (frame.type?.startsWith('chat_rtc_') || frame.nonce && this._rtc?.pending.has(frame.nonce))) this._rtcMessage(frame, frame.type === 'chat_error');
+        // every other frame becomes an event the "when [EVENT] happens" hat can see
         if (frame.type && frame.type !== 'auth_success') {
           state.eventFlags.add(frame.type); state.eventFlags.add('any'); state.lastEvent = frame;
           this._bfLastEvent = { ...frame, instance: state.origin };
@@ -3973,6 +4161,7 @@
           const message = frame.message;
           this._instanceRemember(state, message);
           state.last = message;
+          // keeps the older "when message received" / "latest channel post" blocks working for Bonfire servers
           state.chatEvt[message.channel] = true; this._chatEvt['*'] = true;
           this._lastChatMsg = { ...message, server: state.community?.sid || '', instance: state.origin };
           const typing = state.typing[message.channel];
@@ -4020,21 +4209,25 @@
     },
     async _instanceMessage(state, channel, value) {
       const id = instanceId(value);
+      // a bounded history query also finds older messages without paging in a loop
       const data = await this._instanceRequest(state, `/channels/${encodeURIComponent(channel.cid)}/messages?before=${BigInt(id) + 1n}&limit=1`);
       const message = (data.messages || []).find(item => bfString(item.id) === id);
       if (!message || bfString(message.channel) !== bfString(channel.cid)) throw new Error('message_not_found');
       this._instanceRemember(state, message);
       return message;
     },
+    // the issuer this instance announces in /.well-known/bonfire (velora.issuer), normalized like the server does; legacy origin when absent.
+    // Not SERVER_HTTP: the instance verifies against its own configured Nookara origin, which can differ from the domain we log in through.
     _instanceIssuer(state) {
       const announced = state.discovery?.velora?.issuer;
-      if (announced) { try { const url = new URL(String(announced).trim()); if (url.protocol === 'https:' || url.protocol === 'http:') return url.origin; } catch {  } }
+      if (announced) { try { const url = new URL(String(announced).trim()); if (url.protocol === 'https:' || url.protocol === 'http:') return url.origin; } catch { /* use the default */ } }
       return 'https://velora.ikelene.net';
     },
     _instanceCanSign(state) {
       return state.velora && state.user.kind === 'velora' && this._authenticated &&
         (this._grantedScopes & SCOPES.SIGN_MESSAGES) !== 0 && !(this._disabledScopes & SCOPES.SIGN_MESSAGES);
     },
+    // returns { kid, sig, ts, nonce } or null when this session can't / mustn't sign (see the MESSAGE SIGNING note above)
     async _instanceSignature(state, channel, body, reply, edit, attachments = []) {
       if (!this._instanceCanSign(state)) return null;
       const token = this._token;
@@ -4062,12 +4255,13 @@
         return { kid, sig, ts, nonce };
       } catch (error) { this._instanceSigningKey = null; throw error; }
     },
-    async _instanceWrite(state, channel, body, reply = null, edit = null, attachments = []) {
+    // send (edit = null) or edit (edit = message id) a message; signed when allowed, otherwise plain. Returns the stored message.
+    async _instanceWrite(state, channel, body, reply = null, edit = null, attachments = [], sticker = null) {
       for (let attempt = 0; attempt < 2; attempt++) {
         const signature = await this._instanceSignature(state, channel, body, reply, edit, attachments);
         try {
           const data = await this._instanceRequest(state, edit ? `/messages/${encodeURIComponent(edit)}` : `/channels/${encodeURIComponent(channel.cid)}/messages`, edit ? 'PATCH' : 'POST',
-            { message: body, ...(!edit ? { reply_to: reply } : {}), ...(!edit && attachments.length ? { attachments } : {}), ...(signature ? { signature } : {}) });
+            { message: body, ...(!edit ? { reply_to: reply } : {}), ...(!edit && attachments.length ? { attachments } : {}), ...(!edit && sticker ? { sticker } : {}), ...(signature ? { signature } : {}) });
           if (data.message) this._instanceRemember(state, data.message);
           return data.message || null;
         } catch (error) {
@@ -4077,6 +4271,7 @@
       }
       return null;
     },
+    // ids of people / roles: usernames and role names are accepted everywhere a block asks for them
     async _instanceMemberId(state, value) {
       const ref = bfString(value).trim().replace(/^@/, '');
       if (!ref) throw new Error('Enter a username.');
@@ -4098,6 +4293,7 @@
       if (!state.community?.sid) throw new Error('This Bonfire server has no community yet.');
       return encodeURIComponent(state.community.sid);
     },
+    // public facts about a server (discovery + instance info); uses the session when connected so admins also see the update status
     async _instanceInfoOf(url) {
       const origin = this._instanceOrigin(url);
       const cache = this._instanceInfoCache || (this._instanceInfoCache = new Map());
@@ -4106,11 +4302,12 @@
       const session = this._instances.get(origin)?.session || null;
       const discovery = await this._instanceFetch(origin, '/.well-known/bonfire');
       let info = {};
-      try { info = await this._instanceFetch(origin, '/api/v1/instance/info', 'GET', null, session); } catch {  }
+      try { info = await this._instanceFetch(origin, '/api/v1/instance/info', 'GET', null, session); } catch { /* older servers: discovery only */ }
       const entry = { at: Date.now(), discovery, info };
       cache.set(origin, entry);
       return entry;
     },
+    // ── connecting ──
     biConnect({ URL }) { return this._connectInstance(URL); },
     biConnectLocal({ URL, USERNAME, PASSWORD }) { return this._connectInstance(URL, { username: bfString(USERNAME), password: bfString(PASSWORD) }); },
     biRegister({ URL, USERNAME, PASSWORD }) { return this._connectInstance(URL, { register: true, username: bfString(USERNAME), password: bfString(PASSWORD) }); },
@@ -4125,6 +4322,7 @@
       if (session) await this._instanceFetch(origin, '/api/v1/auth/logout', 'POST', null, session);
     },
     biConnected({ URL }) { return !!this._instances.get(this._instanceOrigin(URL))?.ready; },
+    // the person's own server list on Nookara (follows them between devices); needs Chat Messaging
     async biMyInstances() { return JSON.stringify(await this._bfRequest('/bonfire/instances')); },
     async biSaveInstance({ URL }) {
       const origin = this._instanceOrigin(URL);
@@ -4147,6 +4345,7 @@
       search.set('page', String(Math.max(1, Math.floor(instanceNumber(PAGE, 1)))));
       return JSON.stringify(await this._bfRequest('/bonfire/directory?' + search));
     },
+    // ── about a server ──
     async biAbout({ PROP, URL }) {
       const { discovery: d, info } = await this._instanceInfoOf(URL);
       const b = d.build || info.build || {};
@@ -4168,6 +4367,7 @@
         case 'read only': return !!d.read_only;
         case 'hosting plan': return d.managed?.plan || '';
         case 'max upload mb': return d.max_upload_mb ?? 0;
+        // only admins of that server get an update status
         case 'update available': return !!info.update?.outdated;
         default: return JSON.stringify({ discovery: d, info });
       }
@@ -4188,12 +4388,15 @@
     },
     async biServerName({ URL }) { const state = await this._instanceEnsure(URL); return state.community?.name || state.discovery.name || ''; },
     async biMyId({ URL }) { return (await this._instanceEnsure(URL)).user.id; },
+    // Voice runs over the instance's own gateway (chat_rtc_* with room bf_<cid>). This extension can't join Bonfire-server voice
+    // yet (its audio engine is wired to the Nookara socket), so this only reports what a client needs to know.
     async biVoiceInfo({ CHANNEL, URL }) {
       const state = await this._instanceEnsure(URL), channel = await this._instanceChannel(state, CHANNEL);
       const features = (await this._instanceInfoOf(state.origin)).discovery.features || {};
       return JSON.stringify({ voice_available: !!features.voice, is_voice_channel: channel.type === 'voice', cid: channel.cid, name: channel.name, room: `bf_${channel.cid}`,
         user_limit: channel.config?.user_limit ?? 0, allow_call_in: !!channel.config?.allow_call_in, gateway: state.origin.replace(/^http/, 'ws') + '/gateway', joinable_from_this_extension: false });
     },
+    // ── community ──
     async biCommunity({ URL }) { const state = await this._instanceEnsure(URL); return JSON.stringify({ ...(await this._instanceDetailCached(state)).server, instance: state.origin }); },
     async biJoin({ URL }) {
       const state = await this._instanceForJoin(URL);
@@ -4237,6 +4440,7 @@
       const ref = bfString(USER).trim().replace(/^@/, '');
       let uid = /^[vlb]:\d+$/.test(ref) ? ref : null;
       if (!uid) {
+        // a banned person isn't a member any more, so look them up in the ban list
         const bans = (await this._instanceRequest(state, `/servers/${this._instanceSid(state)}/bans`)).bans || [];
         const hit = bans.map(ban => ban.user || ban).find(user => bfString(user.username).toLowerCase() === ref.toLowerCase());
         if (!hit) throw new Error('member_not_found');
@@ -4258,6 +4462,7 @@
     },
     biAcceptRequest({ USER, URL }) { return this._instanceResolveRequest(URL, USER, 'accept'); },
     biDenyRequest({ USER, URL }) { return this._instanceResolveRequest(URL, USER, 'deny'); },
+    // ── invites ──
     async biCreateInvite({ URL, SECONDS, USES }) {
       const state = await this._instanceEnsure(URL);
       const body = {};
@@ -4286,6 +4491,7 @@
     async biJoinInvite({ CODE, URL }) { const { origin, code } = instanceParseInvite(CODE, URL); await this._instanceJoinInvite(origin, code); },
     async biInvites({ URL }) { const state = await this._instanceEnsure(URL); return JSON.stringify((await this._instanceRequest(state, `/servers/${this._instanceSid(state)}/invites`)).invites || []); },
     async biDeleteInvite({ CODE, URL }) { const state = await this._instanceEnsure(URL); await this._instanceRequest(state, `/invites/${encodeURIComponent(instanceParseInvite(CODE, URL).code)}`, 'DELETE'); },
+    // ── channels ──
     async biChannels({ URL }) { const state = await this._instanceEnsure(URL); await this._instanceDetail(state); return JSON.stringify([...state.channels.values()]); },
     async biChannelId({ URL, NAME }) { return (await this._instanceChannel(await this._instanceEnsure(URL), NAME)).cid; },
     async biChannelProp({ PROP, CHANNEL, URL }) {
@@ -4315,12 +4521,14 @@
       await this._instanceRequest(state, `/channels/${encodeURIComponent(channel.cid)}`, 'DELETE');
       state.channels.clear(); state.detailAt = 0;
     },
+    // ── messages ──
     async biMessages({ URL, CHANNEL }) {
       const state = await this._instanceEnsure(URL), channel = await this._instanceChannel(state, CHANNEL);
       const data = await this._instanceRequest(state, `/channels/${encodeURIComponent(channel.cid)}/messages?limit=100`);
       for (const message of data.messages || []) this._instanceRemember(state, message);
       return JSON.stringify(data.messages || []);
     },
+    // filters JSON: { "limit": 1-100, "before": <message id>, "after": <message id> }
     async biHistory({ URL, CHANNEL, QUERY }) {
       const state = await this._instanceEnsure(URL), channel = await this._instanceChannel(state, CHANNEL);
       const query = bfString(QUERY).trim() ? this._bfJson(QUERY) : {};
@@ -4374,6 +4582,7 @@
     async biEdit({ URL, CHANNEL, ID, TEXT }) {
       const state = await this._instanceEnsure(URL), channel = await this._instanceChannel(state, CHANNEL);
       const message = await this._instanceMessage(state, channel, ID);
+      // an edit is signed over the same reply target + attachments the message already has
       const reply = message.reply_to != null ? bfString(message.reply_to) : (message.reply?.id == null ? null : bfString(message.reply.id));
       await this._instanceWrite(state, channel, instanceBody(TEXT), reply, bfString(message.id), message.attachments || []);
     },
@@ -4388,6 +4597,7 @@
       const channel = bfString(CHANNEL).trim();
       return state.last.channel === channel || state.channels.get(state.last.channel)?.name.toLowerCase() === channel.replace(/^#/, '').toLowerCase();
     },
+    // polled hat: true once per event of that type, then it resets
     biWhenEvent({ EVENT, URL }) {
       const state = this._instanceLookup(URL);
       if (!state) return false;
@@ -4397,6 +4607,8 @@
     biLastText({ URL }) { return this._instanceState(URL).last?.body || ''; },
     biLastAuthor({ URL }) { return this._instanceState(URL).last?.author?.id || ''; },
     biLastAlias({ URL }) { return this._instanceState(URL).last?.alias?.name || ''; },
+    // Aliases are bot-only, so these two use a bot token on the Discord-style /bot/v1 routes (Authorization: Bot TOKEN).
+    // Never put a real bot token in a project you share: anyone who opens it can read it.
     async _botAliasRequest(URL, TOKEN, path, method, body) {
       const origin = this._instanceOrigin(URL), token = bfString(TOKEN).trim();
       if (!token) throw new Error('Enter the bot token.');
@@ -4424,6 +4636,102 @@
       const alias = bfString(NAME).trim() ? this._botAlias(NAME, AVATAR) : null;
       await this._botAliasRequest(URL, TOKEN, `/channels/${channel}/messages/${id}`, 'PATCH', { alias });
     },
+    // ---- Bot DMs on Nookara (a bot token + https://nookara.cc/chat/api/v1 and wss://nookara.cc/chat/gateway) ----
+    // A DM with a bot is never encrypted. A bot may start a DM only with someone it shares an Ember server with (and their privacy
+    // setting allows bots), or answer someone who wrote to it first. 30 messages a minute, 20 new conversations an hour, 100 a day.
+    // Never put a real bot token in a project you share: anyone who opens it can read it.
+    async _botDmRequest(TOKEN, path, method, body) {
+      const token = bfString(TOKEN).trim();
+      if (!token) throw new Error('Enter the bot token.');
+      this._lastActionSuccess = false;
+      this._botDmError = '';
+      try {
+        const response = await fetch(SERVER_HTTP + '/chat/api/v1' + path, { method, credentials: 'omit', redirect: 'error', signal: AbortSignal.timeout(15000), headers: { Authorization: `Bot ${token}`, 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+        const data = response.status === 204 ? {} : await response.json().catch(() => ({}));
+        if (!response.ok) {
+          const why = data.error === 'rate_limited' || response.status === 429 ? `The bot is sending DMs too fast. Try again in ${Math.ceil(Number(data.retry_after) || 1)} seconds.` : (data.detail || data.message || data.error || `HTTP ${response.status}`);
+          throw new Error(why);
+        }
+        this._lastActionSuccess = true;
+        return data;
+      } catch (error) {
+        this._botDmError = String(error?.message || error);
+        throw error;
+      }
+    },
+    async _botDmOpenWith(TOKEN, ID) {
+      const who = bfString(ID).trim().replace(/^@/, '');
+      if (!who) throw new Error('Enter the user id (or username).');
+      const channel = await this._botDmRequest(TOKEN, '/users/@me/channels', 'POST', /^\d{1,18}$/.test(who) ? { recipient_id: who } : { username: who });
+      return channel.id;
+    },
+    async biOpenBotDm({ ID, TOKEN }) { await this._botDmOpenWith(TOKEN, ID); },
+    async biSendBotDm({ TEXT, ID, TOKEN }) {
+      const channel = await this._botDmOpenWith(TOKEN, ID);
+      await this._botDmRequest(TOKEN, `/channels/${channel}/messages`, 'POST', { content: bfString(TEXT) });
+    },
+    async biSendBotDmChannel({ TEXT, CHANNEL, TOKEN }) {
+      const channel = bfString(CHANNEL).trim();
+      if (!/^\d+$/.test(channel)) throw new Error('Enter the numeric DM channel id.');
+      await this._botDmRequest(TOKEN, `/channels/${channel}/messages`, 'POST', { content: bfString(TEXT) });
+    },
+    biBotDmChannelFor({ ID }) { const id = bfString(ID).trim(); return /^\d{1,12}$/.test(id) ? String(1000000000000 + Number(id)) : ''; },
+    biBotDmConnect({ TOKEN }) {
+      const token = bfString(TOKEN).trim();
+      if (!token) throw new Error('Enter the bot token.');
+      this.biBotDmDisconnect();
+      const st = { token, ws: null, ready: false, closed: false, tries: 0, me: null, beat: null, retry: null };
+      this._botDmGate = st;
+      this._botDmError = '';
+      this._botDmDial(st);
+    },
+    _botDmDial(st) {
+      if (st.closed) return;
+      let ws;
+      try { ws = new WebSocket(SERVER_WS + '/chat/gateway'); } catch (error) { this._botDmError = String(error?.message || error); return; }
+      st.ws = ws;
+      ws.onmessage = event => {
+        let frame;
+        try { frame = JSON.parse(event.data); } catch { return; }
+        if (frame.op === 10) {
+          clearInterval(st.beat);
+          st.beat = setInterval(() => { if (ws.readyState === 1) ws.send(JSON.stringify({ op: 1, d: null })); }, Math.max(5000, Number(frame.d?.heartbeat_interval) || 41250));
+          ws.send(JSON.stringify({ op: 2, d: { token: st.token, intents: 0, properties: {} } }));
+          return;
+        }
+        if (frame.op !== 0) return;
+        if (frame.t === 'READY') { st.ready = true; st.tries = 0; st.me = frame.d?.user?.id == null ? null : String(frame.d.user.id); this._botDmError = ''; return; }
+        const m = frame.d;
+        // a DM has no guild_id and bonfire.dm; the bot's own sent messages come back too, so skip them
+        if (frame.t === 'MESSAGE_CREATE' && m && !m.guild_id && m.bonfire?.dm && String(m.author?.id) !== st.me) { this._botDmLast = m; this._evtBotDm = true; }
+      };
+      ws.onerror = () => { this._botDmError = 'Could not reach the Nookara bot gateway.'; };
+      ws.onclose = event => {
+        clearInterval(st.beat);
+        st.ready = false;
+        if (st.closed) return;
+        if (event.code === 4004) { st.closed = true; this._botDmError = 'The bot token was refused.'; return; }
+        st.tries += 1;
+        st.retry = setTimeout(() => this._botDmDial(st), Math.min(30000, 1000 * 2 ** Math.min(st.tries, 5)));
+      };
+    },
+    biBotDmDisconnect() {
+      const st = this._botDmGate;
+      this._botDmGate = null;
+      if (!st) return;
+      st.closed = true;
+      clearInterval(st.beat);
+      clearTimeout(st.retry);
+      try { st.ws?.close(); } catch { /* already closed */ }
+    },
+    biBotDmConnected() { return !!this._botDmGate?.ready; },
+    biWhenBotDm() { const v = !!this._evtBotDm; this._evtBotDm = false; return v; },
+    biBotDmText() { return this._botDmLast?.content || ''; },
+    biBotDmAuthor() { return this._botDmLast?.author?.username || ''; },
+    biBotDmAuthorId() { return this._botDmLast?.author?.id == null ? '' : String(this._botDmLast.author.id); },
+    biBotDmChannel() { return this._botDmLast?.channel_id == null ? '' : String(this._botDmLast.channel_id); },
+    biBotDmJson() { return JSON.stringify(this._botDmLast || {}); },
+    biBotDmError() { return this._botDmError || ''; },
     biLastId({ URL }) { return this._instanceState(URL).last?.id || ''; },
     biLastChannel({ URL }) { return this._instanceState(URL).last?.channel || ''; },
     biLastProp({ PROP, URL }) {
@@ -4432,19 +4740,22 @@
       switch (bfString(PROP).toLowerCase()) {
         case 'text': return m.body || '';
         case 'author name': return m.author?.username || m.author?.display_name || '';
+        case 'author display name': return m.author?.display_name || m.author?.username || '';
         case 'author id': return m.author?.id || '';
         case 'alias name': return m.alias?.name || '';
         case 'alias avatar': return m.alias?.avatar_url || '';
-        case 'alias unmarked?': return !!m.alias?.unmarked;
+        case 'alias unmarked?': return !!m.alias?.unmarked; // the server lets this bot's aliases show with no mark (Danger zone setting)
         case 'channel': return m.channel || '';
         case 'id': return m.id || '';
         case 'reply to': return m.reply_to != null ? bfString(m.reply_to) : (m.reply?.id == null ? '' : bfString(m.reply.id));
         case 'signed': return !!m.signature;
+        // the server's own verdict (clients are meant to verify against Nookara's keys themselves; this extension does not)
         case 'server says verified': return m.verified === true;
         case 'attachments': return JSON.stringify(m.attachments || []);
         default: return JSON.stringify(m);
       }
     },
+    // ── media ──
     async _instanceUpload(state, channel, dataUri, filename) {
       if (state.velora) this._requireScope(SCOPES.MEDIA_UPLOAD);
       const uri = bfString(dataUri);
@@ -4468,6 +4779,7 @@
       const state = await this._instanceEnsure(URL), channel = await this._instanceChannel(state, CHANNEL);
       return JSON.stringify(instanceAttachment(await this._instanceUpload(state, channel, FILE, FILENAME)));
     },
+    // asks the server itself to fetch the file (HTTPS links only), so the browser never has to download it
     async biImportMedia({ MEDIA_URL, CHANNEL, URL }) {
       const state = await this._instanceEnsure(URL), channel = await this._instanceChannel(state, CHANNEL);
       if (state.velora) this._requireScope(SCOPES.MEDIA_UPLOAD);
@@ -4483,9 +4795,50 @@
       const attachment = instanceAttachment(await this._instanceUpload(state, channel, FILE, FILENAME));
       await this._instanceWrite(state, channel, instanceBody(TEXT), null, null, [attachment]);
     },
+    // ── stickers (Ember servers, PROTOCOL 6.1.1): server-only, up to 30 per server, a sticker goes out as a message of its own ──
+    async biStickers({ URL }) { const state = await this._instanceEnsure(URL); return JSON.stringify((await this._instanceRequest(state, `/servers/${this._instanceSid(state)}/stickers`)).stickers || []); },
+    // accepts the sticker's id (tid) or its name
+    async _instanceStickerId(state, value) {
+      const ref = bfString(value).trim().replace(/^:|:$/g, '');
+      if (!ref) throw new Error('Enter a sticker name or id.');
+      if (/^t[0-9a-f]{10}$/.test(ref)) return ref;
+      const list = (await this._instanceRequest(state, `/servers/${this._instanceSid(state)}/stickers`)).stickers || [];
+      const hit = list.find(item => bfString(item.name).toLowerCase() === ref.toLowerCase());
+      if (!hit) throw new Error('No sticker with that name or id on this server.');
+      return hit.tid;
+    },
+    async biSendSticker({ STICKER, CHANNEL, URL }) {
+      const state = await this._instanceEnsure(URL), channel = await this._instanceChannel(state, CHANNEL);
+      await this._instanceWrite(state, channel, '', null, null, [], await this._instanceStickerId(state, STICKER));
+    },
+    async biAddSticker({ NAME, FILE, FILENAME, URL }) {
+      const state = await this._instanceEnsure(URL);
+      if (!/^(data:|blob:)/.test(bfString(FILE))) throw new Error('Choose a file or provide its data URI.');
+      const source = await fetch(bfString(FILE));
+      if (!source.ok) throw new Error('Could not read the file.');
+      const form = new FormData();
+      form.append('file', await source.blob(), bfString(FILENAME).trim() || 'sticker.png');
+      if (bfString(NAME).trim()) form.append('name', bfString(NAME).trim());
+      const data = await this._instanceMultipart(state, `/servers/${this._instanceSid(state)}/stickers`, form);
+      return JSON.stringify(data.sticker || data);
+    },
+    async biRenameSticker({ STICKER, NAME, URL }) {
+      const state = await this._instanceEnsure(URL);
+      await this._instanceRequest(state, `/servers/${this._instanceSid(state)}/stickers/${encodeURIComponent(await this._instanceStickerId(state, STICKER))}`, 'PATCH', { name: bfString(NAME).trim() });
+    },
+    async biDeleteSticker({ STICKER, URL }) {
+      const state = await this._instanceEnsure(URL);
+      await this._instanceRequest(state, `/servers/${this._instanceSid(state)}/stickers/${encodeURIComponent(await this._instanceStickerId(state, STICKER))}`, 'DELETE');
+    },
+    // { tid, name, url, animated } (or { tid, name: null, url: null, animated: false, deleted: true } once it was deleted); {} when the message has none
+    async biMessageSticker({ ID, CHANNEL, URL }) { const state = await this._instanceEnsure(URL); return JSON.stringify((await this._instanceMessage(state, await this._instanceChannel(state, CHANNEL), ID)).sticker || {}); },
+    // ── bots ──
+    // (the person's OWN bots - create / token / gallery listing - live on Nookara: see the "Nookara API: bots" blocks.
+    //  These manage the bot accounts inside one community.)
     async biBots({ URL }) { return JSON.stringify(await this._instanceRequest(await this._instanceEnsure(URL), '/bots')); },
     async biCreateBot({ NAME, DESCRIPTION, URL }) { return JSON.stringify(await this._instanceRequest(await this._instanceEnsure(URL), '/bots', 'POST', { name: bfString(NAME).trim(), description: bfString(DESCRIPTION) })); },
     async biRemoveBot({ BOT, URL }) { await this._instanceRequest(await this._instanceEnsure(URL), `/bots/${encodeURIComponent(bfString(BOT).trim())}`, 'DELETE'); },
+    // listed (gallery) bot -> this community: Nookara hands out a short-lived ticket for this server, the server checks it offline
     async biAddGalleryBot({ BOT, URL }) {
       const state = await this._instanceEnsure(URL);
       if (!state.velora) throw new Error('gallery_needs_velora_account');
@@ -4495,6 +4848,8 @@
       await this._instanceRequest(state, '/bots/gallery/add', 'POST', { ticket: ticket.ticket, sid });
       state.detailAt = 0;
     },
+    // ── anything else the server's REST API has (roles, emojis, sounds, webhooks, shop, bridges, settings ...) ──
+    // PROTOCOL.md lists the routes; the path is relative to INSTANCE/api/v1. For GET / DELETE the options become the query string.
     async biApi({ METHOD, PATH, URL, OPTIONS }) {
       const method = bfString(METHOD).trim().toUpperCase();
       if (!['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) throw new Error('Choose GET, POST, PUT, PATCH or DELETE.');
@@ -4521,20 +4876,23 @@
       this._disposeInstances();
       this._instanceURLs.clear();
       for (const value of Array.isArray(data?.instances) ? data.instances.slice(0, 100) : []) {
-        try { this._instanceURLs.add(this._instanceOrigin(value)); } catch {  }
+        try { this._instanceURLs.add(this._instanceOrigin(value)); } catch { /* skip invalid saved origins */ }
       }
       this._restoreInstances();
     },
     _restoreInstances() {
+      // Saved URLs are project configuration only. The project decides when to connect and retry.
     },
+    // ── the older "server" blocks: [SERVER] can now be a Bonfire server URL or the name / id of a community on a server you're connected to ──
     _bfMatchCommunity(state, key) {
       const c = state.community;
       if (!c) return false;
       let host = '';
-      try { host = new URL(state.origin).host; } catch {  }
+      try { host = new URL(state.origin).host; } catch { /* ignore */ }
       return [c.sid, c.name, state.origin, host].some(value => value && bfString(value).toLowerCase() === key);
     },
     _bfLooksLikeInstance(text) { return /^https?:\/\/[^\s/]+/i.test(text) || /^[a-z0-9-]+(\.[a-z0-9-]+)+(:\d+)?$/i.test(text); },
+    // only looks at servers that are already connected (hats poll this every frame, so it must not do any network)
     _bfResolveSync(ref) {
       const text = bfString(ref).trim();
       if (!text) return null;
@@ -4554,10 +4912,12 @@
       throw new Error('Server name could not be resolved on a connected instance: use the new ID-based block with instance URL, server ID and channel ID.');
     },
     _bfHatTarget(ref) { return this._bfResolveSync(ref); },
+    // game + CloudLink routes have the same shape on Nookara (/chat/...) and on a Bonfire server (/api/v1/...)
     _bfApi(d, path, method = 'GET', body = null) {
       return d.instance ? this._instanceRequest(d.instance, path, method, body) : this._bfRequest('/chat' + path, method, body);
     },
   });
+  // ---- hook the older blocks up to Bonfire servers ----
   {
     const proto = NookaraExtension.prototype;
     const legacy = {};
@@ -4579,6 +4939,7 @@
       return { ...(await this._instanceDetailCached(state)), instance: state };
     };
 
+    // Saved rail entries use public discovery until explicitly connected. Membership is unknown then.
     proto.chatMyServers = async function () {
       this._requireScope(SCOPES.CHAT);
       const saved = (await this._bfRequest('/bonfire/instances')).instances || [];
@@ -4619,6 +4980,7 @@
       const data = await this._instanceRequest(state, `/servers/${this._instanceSid(state)}/members`);
       return JSON.stringify(data.members);
     });
+    // Bonfire servers don't relay presence, so "active" members are the ones whose presence this client already knows from Nookara
     reroute('chatOnlineMembers', async function (state) {
       const data = await this._instanceRequest(state, `/servers/${this._instanceSid(state)}/members`);
       return JSON.stringify(data.members.filter(member => { const p = this._presence[bfString(member.username).toLowerCase()]; return p && p.status && p.status !== 'offline'; }));
@@ -4649,6 +5011,7 @@
       return JSON.stringify(Object.keys(users).filter(user => users[user] > now));
     });
 
+    // hats: answered from the connected servers only (never any network)
     legacy.whenChatMessage = proto.whenChatMessage;
     proto.whenChatMessage = function ({ CHANNEL, SERVER }) {
       const state = this._bfHatTarget(SERVER);
@@ -4659,6 +5022,7 @@
       return true;
     };
 
+    // game servers + CloudLink bridges, on Nookara communities (old) or Bonfire servers
     proto._gameChannel = async function (CHANNEL, SERVER) {
       this._requireScope(SCOPES.CHAT);
       const { c, d } = await this._chatChannel(CHANNEL, SERVER);
@@ -4695,6 +5059,8 @@
       return (await this._bfApi(d, `/channels/${encodeURIComponent(c.cid)}/cloudlink`)).status || {};
     };
   }
+  // v1.8: ID-based palette. The protocol hosts one community per instance, so validate
+  // SERVER against that instance before delegating to the existing signed REST implementation.
   const idInstanceBlocks = [];
   let idSection = '';
   for (const entry of instanceBlocks) {
@@ -4773,12 +5139,15 @@
   });
   NookaraExtension.prototype.chatChannelLocked = async function ({ CHANNEL, SERVER }) { return !!(await this._chatChannel(CHANNEL, SERVER)).c.locked; };
   NookaraExtension.prototype.chatCanPost = async function ({ CHANNEL, SERVER }) { return !!(await this._chatChannel(CHANNEL, SERVER)).c.can_post; };
+  // Keep biConnect as a deprecated alias. No deserialization, reporter or hat may initiate login.
   NookaraExtension.prototype.biConnect = NookaraExtension.prototype.biConnectInstance;
+  // v1.9: existing project opcodes are the decentralized API. Resolution never connects.
   const migrationError = detail => new Error(detail + ': use the connect block and the server ID / channel ID (or an instance-scoped block).');
   const uiRoute = path => /^\/chat\/(gifs|klipy|modmail|unfurl|notify|open|settings|emojis|sounds|hooks|bridge)(\/|$)/.test(path) ||
     /^\/chat\/media(\/|$)/.test(path) && !/^\/chat\/media\/(upload|external)$/.test(path) ||
     /\/(emojis|sounds|webhooks|cloudlink)(\/|$)/.test(path) || /\/layout$/.test(path);
-  const identityRoute = path => /^\/chat\/(presence|users|dm|calls)(\/|$)/.test(path) || /^\/chat\/bots\/[^/]+\/gallery(\/|$)/.test(path);
+  // Presence, identities, Instant Messages and global bot-gallery identity remain Nookara services.
+  const identityRoute = path => /^\/chat\/(presence|users|dm|calls|personal-emojis)(\/|$)/.test(path) || /^\/chat\/bots\/[^/]+\/gallery(\/|$)/.test(path);
   const nativeSpecs = VELORA_ROUTES.filter(spec => spec.path.startsWith('/chat/') && !identityRoute(spec.path));
   const p19 = NookaraExtension.prototype;
   Object.assign(p19, {
@@ -4811,6 +5180,7 @@
     async _message19(id) {
       const found = [];
       for (const state of this._connected19()) {
+        // IDs have no instance slot. Ask each visible channel, rather than trusting an ambiguous cache.
         const detail = await this._instanceDetailCached(state);
         for (const channel of detail.channels || []) {
           try { const message = await this._instanceMessage(state, channel, id); if (message) found.push({ state, channel, message }); }
@@ -4867,6 +5237,8 @@
     lastMessageContent() { return this._lastChatMsg?.body || ''; },
     lastMessageUserJson() { return JSON.stringify(this._lastChatMsg?.author || {}); },
   });
+  // Every old raw community route uses the same Bonfire path/shape (PROTOCOL section 6).
+  // Select the connected instance by sid, cid, invite origin or message ID; no implicit default with multiple instances.
   for (const spec of nativeSpecs) {
     p19[spec.opcode] = uiRoute(spec.path) ? function () { return spec.blockType === 'reporter' ? '{}' : undefined; } : async function (args = {}) {
       this._lastActionSuccess = false;
@@ -4955,6 +5327,7 @@
     const channel = state && this._instanceChannelSync(state, CHANNEL);
     return state === event.state && !!channel && bfString(channel.cid) === bfString(event.frame.channel);
   };
+  // Nookara continues to carry identity/presence/IM/DM-call events, never community chat.
   const identityEvents19 = p19._handleWS;
   p19._handleWS = function (frame) {
     if (['globalMessage', 'roomMessage', 'globalMessages', 'roomMessages'].includes(frame.type)) return;

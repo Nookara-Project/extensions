@@ -1,11 +1,13 @@
 'use strict';
+// runs every block of the old all in one extension and the split ones against the same fake server and compares what they do.
+// run: node check.js
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 const { MODULES, CORE_ID } = require('./manifest');
 
 const DIST = path.join(__dirname, '..', 'dist');
-const OLD = fs.readFileSync(path.join(__dirname, '..', 'velora_extension.js'), 'utf8');
+const OLD = fs.readFileSync(path.join(__dirname, '..', '..', 'velora_extension.js'), 'utf8');
 const files = Object.fromEntries(Object.entries(MODULES).map(([k, m]) => [k, fs.readFileSync(path.join(DIST, m.file), 'utf8')]));
 
 const BlockType = { COMMAND: 'command', REPORTER: 'reporter', BOOLEAN: 'Boolean', HAT: 'hat', EVENT: 'event', LABEL: 'label', BUTTON: 'button', CONDITIONAL: 'conditional', LOOP: 'loop', XML: 'xml' };
@@ -73,6 +75,7 @@ async function callAll(exts, revive) {
   for (const ext of exts) {
     for (const block of ext.getInfo().blocks) {
       if (!block.opcode || block.blockType === 'hat' || block.blockType === 'event') continue;
+      // blocks that wait for a popup, timer or real socket reply cant finish against a fake server
       if (/openAppLogin|openLoginPrompt|openFilePicker|openCheckout|uploadImage|uploadAudio|uploadVideo|uploadPfp|joinVoice|voiceMic|voiceCallUser|callUser|acceptCall|setMic|stopCall|bfJoin|sendIM|replyToStatus|logout/.test(block.opcode)) { if (typeof ext[block.opcode] !== 'function') out[block.opcode] = 'MISSING'; continue; }
       revive();
       let result;
@@ -93,12 +96,14 @@ async function callAll(exts, revive) {
   let bad = 0;
   const fail = msg => { bad++; console.log('FAIL', msg); };
 
+  // 1. the old one, signed in
   const old = world();
   old.load(OLD);
   const oldExt = old.registered[0];
   await oldExt.loginWithToken({ TOKEN: 'tok' });
   await settle();
 
+  // 2. the split ones, add-ons first because thats what a project load can do
   const fresh = world();
   for (const key of ['chat', 'voice', 'payments', 'data', 'social', 'profiles']) fresh.load(files[key]);
   if (fresh.registered.length !== 6) fail('add-ons did not all register without the core');
@@ -114,6 +119,7 @@ async function callAll(exts, revive) {
   if (pay._token !== 'tok' || !pay._authenticated) fail('add-on does not see the sign-in');
   if (fresh.sockets.length !== 1) fail(`expected one socket, got ${fresh.sockets.length}`);
 
+  // 3. every block both ways
   const a = await callAll([oldExt], () => { oldExt._token = 'tok'; oldExt._authenticated = true; });
   const b = await callAll(fresh.registered.filter(e => e !== core).concat(core), () => { core._token = 'tok'; core._authenticated = true; });
   const diffs = [];
@@ -125,11 +131,13 @@ async function callAll(exts, revive) {
   const missing = Object.entries(b).filter(([, v]) => v === 'MISSING').map(([k]) => k);
   if (missing.length) fail('blocks with no function: ' + missing.join(', '));
 
+  // 4. same requests went out
   const norm = list => list.map(x => x.replace(/[?&]_=\d+/, '')).sort();
   const oldCalls = new Set(norm(old.calls)), newCalls = new Set(norm(fresh.calls));
   const lost = [...oldCalls].filter(x => !newCalls.has(x));
   const gained = [...newCalls].filter(x => !oldCalls.has(x));
 
+  // 5. socket frames reach the add-ons
   const social = fresh.registered.find(e => e.getInfo().id === MODULES.social.id);
   fresh.sockets[0].deliver({ type: 'im_received', message: { from: 'someone', body: 'hi' } });
   if (social.lastIMSender() !== 'someone' && !social._lastIM) fail('social add-on missed im_received');
@@ -141,6 +149,7 @@ async function callAll(exts, revive) {
   const chat = fresh.registered.find(e => e.getInfo().id === MODULES.chat.id);
   if (chat.serialize === undefined) fail('chat lost serialize');
 
+  // the plain menu words and the old values both work, and no block lost an input
   core._accountObj = { account: { id: 7 }, profile: { pfp: 'pic' } };
   core._authenticated = true;
   if (core.getAccountKey({ KEY: 'pfp' }) !== 'pic' || core.getAccountKey({ KEY: 'avatar_url' }) !== 'pic') fail('pfp menu word');
@@ -155,13 +164,15 @@ async function callAll(exts, revive) {
     if (inputs(block.text) !== inputs(was.text) || Object.keys(block.arguments || {}).sort().join() !== Object.keys(was.arguments || {}).sort().join()) fail('inputs changed on ' + block.opcode);
   }
 
+  // 6. logout goes everywhere
   const before = fresh.sockets[0];
   await core.logout();
   if (pay._token !== null || social._authenticated) fail('add-ons still signed in after logout');
   if (before.readyState !== 3) fail('socket still open after logout');
 
-  const { migrateProject } = require('../migrate/migrate-core.js');
-  const map = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'migrate', 'block-map.json'), 'utf8'));
+  // 7. converting a project
+  const { migrateProject } = require('../../public/assets/extensions/migrate-core.js');
+  const map = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'public', 'assets', 'extensions', 'block-map.json'), 'utf8'));
   const project = { extensions: ['pen', 'velora'], extensionURLs: { velora: 'https://ikelene.net/gallery/extensions/velora_extension.js' }, monitors: [{ id: 'velora_getBalance', opcode: 'velora_getBalance' }],
     targets: [{ extensionStorage: { velora: { instances: ['https://chat.ikelene.net'] } }, blocks: { a: { opcode: 'velora_subscribe', parent: null, inputs: { PERIOD: [1, 'b'] } }, b: { opcode: 'velora_menu_periodMenu', parent: 'a' }, c: { opcode: 'motion_movesteps' }, d: { opcode: 'velora_loginWithToken' } } }] };
   const moved = migrateProject(project, map);
@@ -176,6 +187,7 @@ async function callAll(exts, revive) {
   if (strange.ok || strange.unknown[0] !== 'notARealBlock') fail('unknown block not refused');
   if (!migrateProject({ targets: [{ blocks: { a: { opcode: 'motion_movesteps' } } }] }, map).none) fail('non Nookara project not spotted');
 
+  // 8. forums loads on its own
   const forums = world();
   forums.load(fs.readFileSync(path.join(DIST, 'nookara-forums.js'), 'utf8'));
   if (await forums.registered[0].directory() === undefined) fail('forums directory');

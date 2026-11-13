@@ -83,6 +83,7 @@
           { opcode: 'uploadPfp', blockType: Scratch.BlockType.COMMAND, text: 'set my pfp to image [DATA_URI] and [MODE]', arguments: { DATA_URI: { type: Scratch.ArgumentType.STRING, defaultValue: '' }, MODE: { type: Scratch.ArgumentType.STRING, menu: 'uploadModeMenu', defaultValue: 'wait' } } },
           { opcode: 'setChatColor', blockType: Scratch.BlockType.COMMAND, text: 'set my chat color to [COLOR]', arguments: { COLOR: { type: Scratch.ArgumentType.STRING, defaultValue: '#c084fc' } } },
           { opcode: 'setPronouns', blockType: Scratch.BlockType.COMMAND, text: 'set my pronouns to [PRONOUNS]', arguments: { PRONOUNS: { type: Scratch.ArgumentType.STRING, defaultValue: 'she/her' } } },
+          { opcode: 'setDisplayName', blockType: Scratch.BlockType.COMMAND, text: 'set my display name to [NAME]', arguments: { NAME: { type: Scratch.ArgumentType.STRING, defaultValue: 'Nat' } } },
           { blockType: Scratch.BlockType.LABEL, text: 'Me' },
           { opcode: 'clientUsername', blockType: Scratch.BlockType.REPORTER, text: 'my username' },
           { opcode: 'myClientObject', blockType: Scratch.BlockType.REPORTER, text: 'my info as JSON' },
@@ -103,7 +104,7 @@
         menus: {
           serviceMenu: { acceptReporters: true, items: ['instant messages', 'group chat', 'voice', 'storage', 'media uploads', 'friends', 'credits', 'profile editing'] },
           authResultMenu: { acceptReporters: false, items: ['successful', 'failed'] },
-          accountKeys: { acceptReporters: true, items: [{ text: 'id', value: 'account_id' }, 'username', { text: 'rank', value: 'membership' }, 'staff_role', { text: 'status', value: 'account_status' }, { text: 'mod level', value: 'moderation_level' }, 'credits', 'badges', { text: 'join date', value: 'joined_at' }, { text: 'last sign in', value: 'last_signed_in_at' }, { text: 'sign in count', value: 'sign_in_count' }, 'sessions', { text: 'accepted terms', value: 'terms_accepted' }, { text: 'accepted terms date', value: 'terms_accepted_at' }, { text: 'email verified', value: 'email_verified' }, 'email', { text: 'pfp', value: 'avatar_url' }, { text: 'banner', value: 'banner_url' }, { text: 'bio', value: 'biography' }, 'pronouns', 'timezone', 'country'] },
+          accountKeys: { acceptReporters: true, items: [{ text: 'id', value: 'account_id' }, 'username', { text: 'display name', value: 'display_name' }, { text: 'rank', value: 'membership' }, 'staff_role', { text: 'status', value: 'account_status' }, { text: 'mod level', value: 'moderation_level' }, 'credits', 'badges', { text: 'join date', value: 'joined_at' }, { text: 'last sign in', value: 'last_signed_in_at' }, { text: 'sign in count', value: 'sign_in_count' }, 'sessions', { text: 'accepted terms', value: 'terms_accepted' }, { text: 'accepted terms date', value: 'terms_accepted_at' }, { text: 'email verified', value: 'email_verified' }, 'email', { text: 'pfp', value: 'avatar_url' }, { text: 'banner', value: 'banner_url' }, { text: 'bio', value: 'biography' }, 'pronouns', 'timezone', 'country'] },
           uploadModeMenu: { acceptReporters: false, items: ['wait', 'continue'] },
         },
       };
@@ -153,7 +154,7 @@
       if (this._ws && this._ws.readyState < 2) return;
       this._wsReady = false;
       this._ws = new WebSocket(SERVER_WS);
-      this._ws.binaryType = 'arraybuffer';
+      this._ws.binaryType = 'arraybuffer'; // Nookara Voice audio comes in as binary frames
 
       this._ws.onopen = () => {
         this._wsReady = true;
@@ -162,6 +163,8 @@
         this._evtDisconnected = false;
         if (this._token) this._wsAuth();
         this._emit('connect');
+        // joins / leaves only come for friends + people you share a server or chat with now, so the whole
+        // online list is asked for again every 30 s (the "connected users" / "is user connected" blocks)
       };
 
       this._ws.onmessage = (e) => {
@@ -174,6 +177,7 @@
       this._ws.onclose = () => {
         this._wsReady = false;
         this._wsAuthed = false;
+        // fail in-flight socket sends so sendIM falls back to https instead of hanging
         this._connected = false;
         this._authenticated = false;
         this._evtDisconnected = true;
@@ -190,6 +194,9 @@
     }
     _wsAuth() {
       if (!this._token) return;
+      // no fingerprint here on purpose, the token was made on nookara.cc
+      // but this code's actually running on scratch.mit.edu so the fingerprint
+      // would just be wrong lol
       this._wsSend({ type: 'auth_token', token: this._token });
     }
     _handleWS(msg) {
@@ -216,7 +223,7 @@
           this._connected = false;
           this._evtDisconnected = true;
           break;
-        case 'user_update':
+        case 'user_update': // someone I can see changed their picture / name / colour / bio ... (profile-live.js)
           this._lastUserUpdate = { ...(msg.user || {}), changed: msg.changed || [], previous_username: msg.previous_username || null };
           this._evtUserUpdated = true;
           break;
@@ -224,10 +231,14 @@
           this._evtAccountUpdated = true;
           this._fetchAccount();
           break;
+        // Instant Messages
+        // an admin changed which services this account can use (applies right away)
+        // achievements (granted from any of your apps - the launcher pops them up)
         case 'restrictions':
           this._disabledScopes = Number(msg.disabled_scopes) || 0;
           if (msg.scopes !== undefined) this._grantedScopes = Number(msg.scopes);
           break;
+        // ── Nookara Voice ──
         case 'pong':
           break;
       }
@@ -235,11 +246,15 @@
     async _http(path, method = 'GET', body = null) {
       const headers = { 'Content-Type': 'application/json' };
       if (this._token) headers['Authorization'] = `Bearer ${this._token}`;
+      // skipping the fingerprint header here too, same reason as _wsAuth above
       const opts = { method, headers };
       if (body) opts.body = JSON.stringify(body);
       const res = await fetch(SERVER_HTTP + path, opts);
       return res.json().catch(() => ({}));
     }
+    // checks scopes on OUR end first so the block goes red instantly instead of
+    // waiting on a network round trip. server double checks everything anyway
+    // so this is just for a snappier error message, not actual security
     _requireScope(bit) {
       if (!this._authenticated) throw new Error('Not logged in');
       if ((this._disabledScopes & bit) !== 0) {
@@ -250,6 +265,8 @@
         throw new Error(this._missingScopeText(bit, name));
       }
     }
+    // Scopes can't be forced any more: a project only REQUESTS them and the person logging in can untick any of them.
+    // So "missing" means one of two things, and the message says which when we know it.
     _missingScopeText(bit, name) {
       const asked = this._requestedScopes;
       if (asked && (asked & bit) !== bit) {
@@ -328,7 +345,7 @@
     // right before it unloads, if the ext-code flow never completed. That's
     // just window messaging, not dependent on the .closed property at all.
     _openLoginPopup(args) {
-      if (this._loginInProgress) return Promise.resolve();
+      if (this._loginInProgress) return Promise.resolve(); // already waiting on one
 
       let projName = Scratch.Cast.toString(args?.PROJECT_NAME || args?.project_name || 'My Project').trim();
       let rawPerm = args?.PERMISSIONS !== undefined && args?.PERMISSIONS !== null ? args.PERMISSIONS : (args?.permissions !== undefined ? args.permissions : '');
@@ -336,12 +353,17 @@
       let cleanPerm = Scratch.Cast.toString(rawPerm).replace(/[^0-9]/g, '');
       let permInt = parseInt(cleanPerm, 10);
 
+      // NOT defaulting to full access if this is empty/broken!! used to secretly
+      // fall back to 65535 (literally every scope) which is baaaad. now it just
+      // asks you to build a real permission integer at nookara.cc/permissions instead
       if (isNaN(permInt) || permInt <= 0) {
         this._lastAuthResult = 'failed';
         throw new Error('Invalid Permissions Integer. Pick the permissions your project asks for at https://nookara.cc/permissions (people signing in can still untick any of them).');
       }
 
       this._loginInProgress = true;
+      // a permission integer lists the permissions the project ASKS for. Nothing is mandatory: the person signing in can untick any of them.
+      // (older integers kept some in the low 16 bits and the rest in the high 16 - both halves simply mean 'asked for')
       this._requestedScopes = (permInt & 0xFFFF) | ((permInt >>> 16) & 0xFFFF);
 
       return new Promise((resolve) => {
@@ -360,6 +382,7 @@
           resolve();
         };
 
+        // Exposed so logout() can bail a login that's still waiting.
         this._cancelPendingLogin = () => {
           try { popup?.close(); } catch (_) {}
           this._lastAuthResult = 'failed';
@@ -379,6 +402,10 @@
               this._lastAuthResult = this._authenticated ? 'successful' : 'failed';
               return true;
             }
+            // Server-side truth for "is the popup even still open": it's
+            // been pinging a heartbeat every ~2s the whole time it's been
+            // up, so silence there means it's gone, full stop - no guessing
+            // from window.closed or postMessage needed.
             if (d.alive === false) {
               try { popup?.close(); } catch (_) {}
               this._lastAuthResult = 'failed';
@@ -390,6 +417,9 @@
 
         const onMessage = (e) => {
           if (e.data?.type !== 'velora_ext_closed' || e.data.code !== code) return;
+          // Popup says it's going away without finishing - one last status
+          // check first, in case success landed on the server right as it
+          // closed itself (same race guard the old debounced version had).
           doPoll(code).then(success => { if (!success) this._lastAuthResult = 'failed'; finish(); });
         };
 
@@ -412,6 +442,9 @@
             if (!popup) { this._lastAuthResult = 'failed'; this._lastActionSuccess = false; this._lastActionOutput = JSON.stringify({ error: 'Popup blocked. Allow popups to sign in to Nookara.' }); finish(); return; }
             window.addEventListener('message', onMessage);
 
+            // Keeps asking the server every 1.5s until it's either done or
+            // dead (404 after 5 min, see routes/auth.js) - the message
+            // listener above covers a manual close well before that.
             pollInterval = setInterval(async () => {
               if (await doPoll(code)) finish();
             }, 1500);
@@ -428,7 +461,7 @@
     // the token never comes from the status poll: the login window posts a one-time grant to this page (the browser only delivers it
     // to the address the sign-in started from), and that swaps for the token
     _openAppLogin(args) {
-      if (this._loginInProgress) return Promise.resolve();
+      if (this._loginInProgress) return Promise.resolve(); // already waiting on one
       const appId = Scratch.Cast.toString(args?.APP_ID ?? '').trim();
       if (!/^app_[0-9a-f]{20}$/.test(appId)) {
         this._lastAuthResult = 'failed';
@@ -520,6 +553,9 @@
     whenAccountUpdated()      { const v = this._evtAccountUpdated; this._evtAccountUpdated = false; return v; }
     whenUserUpdated()         { const v = this._evtUserUpdated;    this._evtUserUpdated = false;    return v; }
     lastUserUpdate()          { return JSON.stringify(this._lastUserUpdate || {}); }
+    // Kept for existing projects that poll it (e.g. to show a "logging
+    // in..." sprite), but nothing internal needs this anymore - the sign in
+    // block now blocks the script itself for as long as this would be true.
     isLoginOpen()          { return !!this._loginInProgress; }
     authResult({ RESULT }) { return this._lastAuthResult === RESULT; }
     async serverOnline() {
@@ -549,6 +585,7 @@
         status: this._status,
       });
     }
+    // One typed field catalogue powers all account reporters and menus.
     _flatAccount() {
       const { account, profile = {} } = this._accountObj;
       if (!account) {
@@ -576,6 +613,7 @@
         banner_url: profile.banner ?? '',
         biography: profile.bio ?? '',
         pronouns: profile.pronouns ?? '',
+        display_name: account.display_name ?? '',
         timezone: profile.timezone ?? '',
         country: profile.country ?? '',
       };
@@ -665,6 +703,12 @@
       this._requireScope(SCOPES.ACCOUNT_WRITE);
       await this._cmd('/account/update', 'PATCH', { color: COLOR });
     }
+    // '' clears it. Refused names (reserved, a staff member's, invisible characters...) come back as the server's error
+    async setDisplayName({ NAME }) {
+      this._requireScope(SCOPES.ACCOUNT_WRITE);
+      const name = Scratch.Cast.toString(NAME ?? '').trim();
+      await this._cmd('/account/update', 'PATCH', { display_name: name || null });
+    }
     async setPronouns({ PRONOUNS }) {
       this._requireScope(SCOPES.ACCOUNT_WRITE);
       await this._cmd('/account/update', 'PATCH', { pronouns: Scratch.Cast.toString(PRONOUNS ?? '') });
@@ -675,7 +719,9 @@
     }
   }
 
-  const EXTENSION_VERSION = '2.0.3';
+  const EXTENSION_VERSION = '2.0.10';
+  // copy pasted from auth.js's SCOPES obj, gotta keep these two in sync by hand
+  // since this file can't just require() the server code lol
   const SCOPES = {
     PROFILE_READ: 1,
     PROFILE_SENSITIVE: 2,
@@ -683,7 +729,7 @@
     ACCOUNT_WRITE: 8,
     STORAGE_READ: 16,
     STORAGE_WRITE: 32,
-    VMAIL_READ: 64,
+    VMAIL_READ: 64,   // Instant Messages (was vMail, same bits so old tokens still work)
     VMAIL_SEND: 128,
     FRIENDS_READ: 256,
     FRIENDS_MANAGE: 512,
@@ -691,7 +737,7 @@
     CHAT: 2048,
     MEDIA_UPLOAD: 4096,
     CURRENCY_READ: 8192,
-    VOICE: 16384,
+    VOICE: 16384,     // Nookara Voice (voice rooms + calling people into them)
     SIGN_MESSAGES: 32768,
   };
   const SCOPE_NAMES = {
@@ -712,13 +758,17 @@
     16384: 'Nookara Voice',
     32768: 'Sign Messages',
   };
+  // "is [service] disabled by an admin?" - the scope bits behind each service
   const SERVICE_BITS = {
     'instant messages': 64 | 128, 'group chat': 2048, 'voice': 16384, 'storage': 16 | 32,
     'media uploads': 4096, 'friends': 256 | 512, 'credits': 1024 | 8192, 'profile editing': 8,
   };
   const bfString = value => Scratch.Cast.toString(value);
+  // pre-Bonfire routes for Nookara-hosted communities (read-only now) - see the note in getInfo below
   const BF_DEPRECATED_ROUTE = /^\/chat\/(invite|servers|discover|channels|messages|join|upload|notify|open|emojis|sounds|hooks|bridge|media\/(upload|external))(\/|$)/;
   Object.assign(NookaraExtension.prototype, {
+    // which scope a request path needs (the server checks too; this just makes the block fail fast with a proper message).
+    // Only /chat, /groups and the Bonfire account routes are 'Chat Messaging'; the public bot gallery + server directory need nothing and Instant Messages has its own pair.
     _bfScopeFor(path, method) {
       const p = Scratch.Cast.toString(path).split('?')[0];
       if (method === 'GET' && (/^\/bonfire\/bots\/gallery(\/[^/]+)?$/.test(p) || p === '/bonfire/directory')) return 0;
@@ -778,6 +828,7 @@
     return instanceLogout.call(this);
   };
   const p19 = NookaraExtension.prototype;
+  // Nookara continues to carry identity/presence/IM/DM-call events, never community chat.
   const identityEvents19 = p19._handleWS;
   p19._handleWS = function (frame) {
     if (['globalMessage', 'roomMessage', 'globalMessages', 'roomMessages'].includes(frame.type)) return;
@@ -788,7 +839,7 @@
   const veloraExt = new NookaraExtension(Scratch.vm.runtime);
 
   // the menus show plain words but keep their old values, a dropped reporter can say either
-  const MENU_WORDS = { accountKeys: { id: 'account_id', rank: 'membership', status: 'account_status', 'mod level': 'moderation_level', 'join date': 'joined_at', 'last sign in': 'last_signed_in_at', 'sign in count': 'sign_in_count', 'accepted terms': 'terms_accepted', 'accepted terms date': 'terms_accepted_at', 'email verified': 'email_verified', pfp: 'avatar_url', banner: 'banner_url', bio: 'biography' } };
+  const MENU_WORDS = { accountKeys: { id: 'account_id', rank: 'membership', status: 'account_status', 'mod level': 'moderation_level', 'join date': 'joined_at', 'last sign in': 'last_signed_in_at', 'sign in count': 'sign_in_count', 'accepted terms': 'terms_accepted', 'accepted terms date': 'terms_accepted_at', 'email verified': 'email_verified', pfp: 'avatar_url', banner: 'banner_url', bio: 'biography', 'display name': 'display_name' } };
   for (const block of veloraExt.getInfo().blocks) {
     const inputs = Object.entries(block?.arguments || {}).filter(([, arg]) => MENU_WORDS[arg.menu]);
     if (!inputs.length) continue;

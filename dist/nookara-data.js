@@ -277,13 +277,16 @@
       const doUpload = async () => {
         let data;
         if (typeof DATA_URI === 'string' && DATA_URI.startsWith('blob:')) {
+          // splits into 10 MB pieces to stay under cf's 100 mb limit (boo)
+          // grabs the actual File object if we have it instead of re-fetching the
+          // blob url, way faster and doesn't load the whole thing into memory twice
           const fileBlob = (this._selectedFile && this._selectedFileUrl === DATA_URI)
             ? this._selectedFile
             : await this._blobFromUrl(DATA_URI);
 
           const mimeType = fileBlob.type || 'video/mp4';
           const originalName = this._selectedFileName || 'video.mp4';
-          const CHUNK = 10 * 1024 * 1024;
+          const CHUNK = 10 * 1024 * 1024; // 10 MB per chunk
           const total = Math.ceil(fileBlob.size / CHUNK);
           const sessionId = `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 
@@ -328,6 +331,7 @@
         this._selectedFileName = '';
         this._selectedFileSize = 0;
         this._selectedFile = null;
+        // gotta manually clean up the old blob url or it just sits in memory forever
         if (this._selectedFileUrl) { try { URL.revokeObjectURL(this._selectedFileUrl); } catch (_) {} }
         this._selectedFileUrl = '';
 
@@ -355,6 +359,8 @@
           const file = input.files && input.files[0];
           if (!file) { finish(); return; }
 
+          // createObjectURL is basically instant no matter how big the file is,
+          // it doesn't actually read the file into memory or anything
           this._selectedFile = file;
           this._selectedFileUrl = URL.createObjectURL(file);
           this._selectedFileName = file.name || '';
@@ -372,6 +378,8 @@
     selectedFileSize() { return this._selectedFileSize; }
   }
 
+  // copy pasted from auth.js's SCOPES obj, gotta keep these two in sync by hand
+  // since this file can't just require() the server code lol
   const SCOPES = {
     PROFILE_READ: 1,
     PROFILE_SENSITIVE: 2,
@@ -379,7 +387,7 @@
     ACCOUNT_WRITE: 8,
     STORAGE_READ: 16,
     STORAGE_WRITE: 32,
-    VMAIL_READ: 64,
+    VMAIL_READ: 64,   // Instant Messages (was vMail, same bits so old tokens still work)
     VMAIL_SEND: 128,
     FRIENDS_READ: 256,
     FRIENDS_MANAGE: 512,
@@ -387,7 +395,7 @@
     CHAT: 2048,
     MEDIA_UPLOAD: 4096,
     CURRENCY_READ: 8192,
-    VOICE: 16384,
+    VOICE: 16384,     // Nookara Voice (voice rooms + calling people into them)
     SIGN_MESSAGES: 32768,
   };
 

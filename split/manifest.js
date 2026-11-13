@@ -1,19 +1,23 @@
 'use strict';
+// which block goes where. the build stops if a block, or a socket message type, has no home here.
 
 const CORE_ID = 'ikelenenookaralogin';
 const HOSTED = 'https://ikelene.net/gallery/extensions';
 
+// section label in the palette -> extension
 const SECTIONS = {
   'Connection': 'login', 'Authentication': 'login', 'Your Nookara Account': 'login', 'Profile': 'login', 'Verbose': 'login', 'Extension': 'login',
   'Currency': 'payments', 'Products and checkout': 'payments',
   'Data Storage': 'data', 'Storage Information': 'data', 'Media Upload': 'data', 'File Picker': 'data',
-  'Status & Rich Presence': 'social', 'Users': 'social', 'DMs (Works offline)': 'social', 'Your Nookara Circle': 'social', 'Nookara App Alerts': 'social',
+  'Status & Rich Presence': 'social', 'Users': 'social', 'DMs (Works offline)': 'social', 'Your Nookara Circle': 'social', 'Inbox, Saved Messages & Translate': 'social', 'Ember Beta': 'social', 'Nookara App Alerts': 'social',
   'Nookara API: users': 'social', 'Nookara API: presence': 'social', 'Nookara API: dm': 'social', 'Nookara API: groups': 'social', 'Nookara API: direct messages': 'social',
   'User Lookup': 'profiles', 'Badge Arcade': 'profiles', 'Hyperfocus': 'profiles', 'Achievements': 'profiles', 'Badges': 'profiles', 'Login History': 'profiles',
   'Nookara Voice': 'voice', 'Nookara API: calls': 'voice',
 };
-const CHAT_SECTION = /^(Bonfire|Connect explicitly|Nookara Events|Game Servers|CloudLink|Nookara API: bots)/;
+// anything else whose section starts with these is chat
+const CHAT_SECTION = /^(Bonfire|Connect explicitly|Nookara Events|Game Servers|CloudLink|Nookara API: bots|Nookara API: personal-emojis)/;
 
+// blocks filed under a section that isnt really theirs
 const OPCODES = {
   clientUsername: 'login', myClientObject: 'login',
   bfEditDM: 'social',
@@ -29,6 +33,7 @@ const moduleFor = (opcode, section) => {
   return null;
 };
 
+// socket message type -> who keeps that switch case (every add-on sees every frame)
 const WS_CASES = {
   auth_success: ['login'], auth_error: ['login'], kicked: ['login'], account_updated: ['login'], user_update: ['login'], restrictions: ['login'], pong: ['login'],
   user_joined: ['social'], user_left: ['social'], status_changed: ['social'], onlinePlayers: ['social'],
@@ -140,6 +145,7 @@ const MODULES = {
   },
 };
 
+// add-ons read these through the core instead of keeping their own copy
 const SHARED = {
   _token: ['getToken', 'null'], _user: ['getUser', 'null'], _username: ['getUsername', "''"], _authenticated: ['isAuthenticated', 'false'], _connected: ['isConnected', 'false'],
   _wsReady: ['isSocketReady', 'false'], _wsAuthed: ['isSocketAuthed', 'false'], _grantedScopes: ['getScopes', '0'], _disabledScopes: ['getDisabledScopes', '0'],

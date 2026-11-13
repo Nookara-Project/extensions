@@ -31,6 +31,7 @@
         if (!key) { unknown.add(parts[1]); continue; }
         block.opcode = rename(parts[0], parts[1], key);
       }
+      // menu shadows go with the block they sit in
       for (const block of Object.values(blocks)) {
         if (!block || Array.isArray(block)) continue;
         const parts = split(block.opcode);
@@ -67,6 +68,7 @@
     return { ok: true, unknown: [], used: ids, changed };
   }
 
+  // only the chat extension saves anything (which servers the project uses)
   function moveStorage(storage, map, used) {
     for (const id of OLD_IDS) {
       if (!storage[id]) continue;

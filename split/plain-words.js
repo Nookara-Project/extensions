@@ -1,6 +1,9 @@
 'use strict';
+// plain wording for the split extensions. only what people read changes: opcodes, inputs and menu values stay, so saved projects still load.
+// the build stops if a text here adds or drops an input.
 
 const TEXT = {
+  // login
   whenConnected: 'when connected',
   whenDisconnected: 'when disconnected',
   serverOnline: 'is Nookara online?',
@@ -24,12 +27,14 @@ const TEXT = {
   lastUserUpdate: 'last profile change as JSON',
   uploadPfp: 'set my pfp to image [DATA_URI] and [MODE]',
   setChatColor: 'set my chat color to [COLOR]',
+  setDisplayName: 'set my display name to [NAME]',
   clientUsername: 'my username',
   myClientObject: 'my info as JSON',
   lastActionOutput: 'last result as JSON',
   lastActionSuccess: 'last action worked?',
   extensionVersion: 'version',
 
+  // payments
   getBalance: 'my credits',
   transferCredits: 'send [AMOUNT] credits to [USER]',
   getTransactions: 'my transactions',
@@ -44,6 +49,7 @@ const TEXT = {
   membershipStatus: 'my membership of product [ID]',
   productInfo: 'product [ID] info',
 
+  // data
   setStorageId: 'use storage [ID]',
   storageIdSet: 'storage set?',
   getStorageId: 'storage name',
@@ -67,6 +73,7 @@ const TEXT = {
   selectedFileName: 'picked file name',
   selectedFileSize: 'picked file size',
 
+  // social
   rpIsMobile: 'is [USER] on mobile?',
   rpIsConsole: 'is [USER] on console?',
   rpIsAutoIdle: 'is [USER] auto idle?',
@@ -129,6 +136,16 @@ const TEXT = {
   getFriendRequests: 'friend requests',
   getFriendStatus: 'friend status with [USER]',
   getFriendCount: 'friend count',
+  cancelFriendRequest: 'cancel friend request to [USER]',
+  inboxMentions: 'my mentions as JSON (limit [LIMIT] before message [BEFORE])',
+  savedMessages: 'saved messages as JSON (limit [LIMIT] before saved id [BEFORE])',
+  saveMessage: 'save [KIND] message [ID]',
+  saveGroupMessage: 'save group message from JSON [SNAPSHOT]',
+  unsaveMessage: 'unsave saved message [SAVEDID]',
+  savedIdOfMessage: 'saved id of [KIND] message [ID] (empty if not saved)',
+  translateText: 'translate [TEXT] to [LANG]',
+  emberBetaStatus: 'Ember Beta status as JSON',
+  hasEmberBeta: 'do I have Ember Beta?',
   getBlockedUsers: 'blocked users',
   whenNotificationReceived: 'when I get a notification',
   notificationCount: 'notification count',
@@ -137,7 +154,9 @@ const TEXT = {
   clearNotifications: 'clear notifications',
   lastNotificationTitle: 'last notification title',
   lastNotificationBody: 'last notification text',
+  sendNotificationToMe: 'send me a notification [TITLE] saying [BODY]',
 
+  // profiles
   whenNewLoginDetected: 'when there is a new sign in',
   fetchLoginHistory: 'load sign in history',
   loginHistoryCount: 'sign in count',
@@ -149,6 +168,7 @@ const TEXT = {
   lookedUpRank: 'their rank',
   lookedUpBio: 'their bio',
   lookedUpPronouns: 'their pronouns',
+  lookedUpDisplayName: 'their display name',
   lookedUpPfp: 'their pfp',
   lookedUpCountry: 'their country',
   lookedUpJSON: 'their profile as JSON',
@@ -176,6 +196,7 @@ const TEXT = {
   hasBadge: 'have badge [BADGE]?',
   badgeInfo: 'badge [BADGE] info',
 
+  // voice
   bfJoinVoiceChannel: 'join voice channel [CHANNEL] in server [SERVER]',
   bfJoinCall: 'join call [ROOM]',
   bfPostChatCalls: 'start call with options [OPTIONS]',
@@ -194,6 +215,7 @@ const TEXT = {
   beingCalled: 'being called?',
   voiceCaller: 'who is calling',
 
+  // chat
   sendGlobalMessage: 'send message [MSG]',
   getGlobalMessages: 'messages',
   sendRoomMessage: 'send [MSG] in channel [ROOM]',
@@ -335,6 +357,11 @@ const TEXT = {
   bfPutChatMessagesIdPin: 'pin message [ID] options [OPTIONS]',
   bfDeleteChatMessagesIdPin: 'unpin message [ID]',
   bfGetChatChannelsCidPins: 'pinned messages in channel [CID]',
+  bfGetChatChannelsCidViewers: 'who can see channel [CID] (JSON)',
+  bfGetChatPersonalEmojis: 'my personal emojis (JSON)',
+  bfPostChatPersonalEmojis: 'add personal emoji from image [FILE] filename [FILENAME] options JSON [OPTIONS] (name goes in options)',
+  bfPatchChatPersonalEmojisEid: 'rename personal emoji [EID] options JSON [OPTIONS]',
+  bfDeleteChatPersonalEmojisEid: 'delete personal emoji [EID]',
   bfGetChatChannelsCidShop: 'shop in channel [CID]',
   bfPostChatChannelsCidShopRid: 'add role [RID] to shop in channel [CID] options [OPTIONS]',
   bfDeleteChatChannelsCidShopRid: 'remove role [RID] from shop in channel [CID]',
@@ -372,10 +399,13 @@ const TEXT = {
   bfPostChatBotsIdGalleryWithdraw: 'take my bot [ID] off the gallery',
 };
 
+// palette headings
 const LABELS = {
   Authentication: 'Sign in',
   'Your Nookara Account': 'My account',
   'Nookara API: direct messages': 'Me',
+  'Inbox, Saved Messages & Translate': 'Inbox and saved',
+  'Ember Beta': 'Ember Beta',
   Verbose: 'Last result',
   Extension: 'About',
   Currency: 'Credits',
@@ -409,6 +439,8 @@ const LABELS = {
   'Bonfire messages': 'Messages',
   'Bonfire media': 'Files',
   'Bonfire bots': 'Bots',
+  'Bonfire stickers': 'Stickers',
+  'Nookara API: personal-emojis': 'Personal emojis',
   'Bonfire JSON: invite': 'Advanced: invites',
   'Bonfire JSON: servers': 'Advanced: servers',
   'Bonfire JSON: discover': 'Advanced: public servers',
@@ -424,8 +456,9 @@ const LABELS = {
   'Nookara API: bots': 'Bot gallery',
 };
 
+// menu value -> what people read. the value stays so saved projects still work
 const MENUS = {
-  accountKeys: { account_id: 'id', membership: 'rank', account_status: 'status', moderation_level: 'mod level', joined_at: 'join date', last_signed_in_at: 'last sign in', sign_in_count: 'sign in count', terms_accepted: 'accepted terms', terms_accepted_at: 'accepted terms date', email_verified: 'email verified', avatar_url: 'pfp', banner_url: 'banner', biography: 'bio' },
+  accountKeys: { account_id: 'id', membership: 'rank', account_status: 'status', moderation_level: 'mod level', joined_at: 'join date', last_signed_in_at: 'last sign in', sign_in_count: 'sign in count', terms_accepted: 'accepted terms', terms_accepted_at: 'accepted terms date', email_verified: 'email verified', avatar_url: 'pfp', banner_url: 'banner', biography: 'bio', display_name: 'display name' },
   fileTypeMenu: { 'audio files': 'audio' },
   dmPrivacyOptions: { 'friends only': 'friends', 'members in my servers': 'server members' },
   arcadeBadgeProps: { 'image URL': 'image', 'badge id': 'id' },
@@ -434,6 +467,7 @@ const MENUS = {
   bfPermissions: { SEND: 'send messages', MANAGE_CHANNELS: 'manage channels', MANAGE_SERVER: 'manage server', MANAGE_ROLES: 'manage roles', KICK: 'kick', BAN: 'ban', MANAGE_MESSAGES: 'manage messages', MENTION_EVERYONE: 'mention everyone', ATTACH: 'attach files', ADMIN: 'admin', VIEW: 'view' },
 };
 
+// a menu that takes a dropped reporter should also take what the menu now says
 const ACCOUNT_ALIASES = Object.fromEntries(Object.entries(MENUS.accountKeys).map(([value, text]) => [text, value]));
 
 module.exports = { TEXT, LABELS, MENUS, ACCOUNT_ALIASES };

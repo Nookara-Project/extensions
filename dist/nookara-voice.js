@@ -175,6 +175,9 @@ this._vLeaveFlip = false;
 
     _handleWS(msg) {
       switch (msg.type) {
+        // Instant Messages
+        // an admin changed which services this account can use (applies right away)
+        // achievements (granted from any of your apps - the launcher pops them up)
         case 'error':
           if (msg.required_scope === SCOPES.VOICE && this._v.opening) {
             const o = this._v.opening; this._v.opening = null;
@@ -184,6 +187,7 @@ this._vLeaveFlip = false;
         case 'chat_error':
           this._rtcMessage(msg, true);
           break;
+        // ── Nookara Voice ──
         case 'voice_open':
           this._v.open = true;
           if (this._v.opening) { const o = this._v.opening; this._v.opening = null; o.resolve(); }
@@ -198,7 +202,7 @@ this._vLeaveFlip = false;
           this._vCall = { callId: msg.callId, from: msg.from, room: msg.room };
           this._evtVoiceCalled = true;
           break;
-        case 'voice_call_accepted':
+        case 'voice_call_accepted': // I said yes - hop into their room
           this._joinVoiceRoom(msg.room).catch(() => {});
           break;
         case 'voice_call_ringing':
@@ -342,7 +346,7 @@ this._vLeaveFlip = false;
       if (!this._vQueues.has(senderId)) this._vQueues.set(senderId, { next: this._vAudio.currentTime });
       const q = this._vQueues.get(senderId);
       const now = this._vAudio.currentTime;
-      if (q.next < now - 0.05 || q.next > now + 1.0) q.next = now + 0.05;
+      if (q.next < now - 0.05 || q.next > now + 1.0) q.next = now + 0.05; // small jitter buffer
       const buf = this._vAudio.createBuffer(1, f32.length, V_RATE);
       buf.copyToChannel(f32, 0);
       const src = this._vAudio.createBufferSource();
@@ -458,6 +462,7 @@ this._vLeaveFlip = false;
       this._vUserSettings.set(name, st);
       this._vApplyUser(name);
     }
+    // hat blocks are edge-triggered, so queued events go out one per true/false flip
     whenVoiceJoin() {
       if (this._vJoinFlip) { this._vJoinFlip = false; return false; }
       if (!this._vJoinQ.length) return false;
@@ -473,6 +478,7 @@ this._vLeaveFlip = false;
       return true;
     }
     voiceEventUser() { return this._vEventUser; }
+    // calls
     voiceCallUser({ USER }) {
       this._requireScope(SCOPES.VOICE);
       if (!this._v.room) { this._vCallResult = 'failed: not in voice'; this._evtVoiceAnswered = true; return; }
@@ -488,7 +494,7 @@ this._vLeaveFlip = false;
     answerVoiceCall({ ANSWER }) {
       if (!this._vCall) return;
       this._wsSend({ type: 'voice_call_answer', callId: this._vCall.callId, accept: ANSWER === 'accept' });
-      this._vCall = null;
+      this._vCall = null; // accepting: Nookara answers with voice_call_accepted and we join their room
     }
     callUser({ USER }) {
       const callId = Math.random().toString(36).slice(2);
@@ -513,6 +519,8 @@ this._vLeaveFlip = false;
     }
   }
 
+  // copy pasted from auth.js's SCOPES obj, gotta keep these two in sync by hand
+  // since this file can't just require() the server code lol
   const SCOPES = {
     PROFILE_READ: 1,
     PROFILE_SENSITIVE: 2,
@@ -520,7 +528,7 @@ this._vLeaveFlip = false;
     ACCOUNT_WRITE: 8,
     STORAGE_READ: 16,
     STORAGE_WRITE: 32,
-    VMAIL_READ: 64,
+    VMAIL_READ: 64,   // Instant Messages (was vMail, same bits so old tokens still work)
     VMAIL_SEND: 128,
     FRIENDS_READ: 256,
     FRIENDS_MANAGE: 512,
@@ -528,9 +536,10 @@ this._vLeaveFlip = false;
     CHAT: 2048,
     MEDIA_UPLOAD: 4096,
     CURRENCY_READ: 8192,
-    VOICE: 16384,
+    VOICE: 16384,     // Nookara Voice (voice rooms + calling people into them)
     SIGN_MESSAGES: 32768,
   };
+  // Nookara Voice audio: raw 16-bit mono PCM @ 16 kHz, ~32 ms chunks (same as the voice server)
   const V_RATE = 16000;
   const V_CHUNK = 512;
   const VELORA_ROUTES = [
@@ -616,6 +625,7 @@ this._vLeaveFlip = false;
       case 'voice_sound': if (msg.sound?.url && this._rtc) { const audio = new Audio(msg.sound.url); audio.volume = Math.min(1, this._vGlobal / 100); audio.play().catch(() => {}); } return;
     }
     bfHandleWS.call(this, msg);
+    // Community chat is subscribed only on explicitly connected instance gateways.
   };
   const bfJoinVoice = NookaraExtension.prototype._joinVoiceRoom;
   NookaraExtension.prototype._joinVoiceRoom = function (room) { if (/^bfc?_/.test(room)) { this._requireScope(SCOPES.VOICE); return this._rtcJoin(room); } return bfJoinVoice.call(this, room); };
@@ -699,6 +709,8 @@ this._vLeaveFlip = false;
         const mid = Scratch.Cast.toString(e.transceiver.mid), ref = r.refs.get(mid);
         if (!ref || this._rtc !== r) return;
         const stream = new MediaStream([e.track]);
+        // Chromium needs an active media element to start decoding remote RTC audio.
+        // Output goes through the gain graph so volume above 100 percent also works.
         const audio = new Audio(); audio.srcObject = stream; audio.muted = true;
         audio.play().catch(() => {}); r.received.set(mid, audio);
         const source = this._vAudio.createMediaStreamSource(stream);
@@ -754,8 +766,10 @@ this._vLeaveFlip = false;
       this._wsSend({ type: 'call_user', to: this._callData.to, callId });
     };
   }
+  // v1.9: existing project opcodes are the decentralized API. Resolution never connects.
   const migrationError = detail => new Error(detail + ': use the connect block and the server ID / channel ID (or an instance-scoped block).');
   const p19 = NookaraExtension.prototype;
+  // Nookara continues to carry identity/presence/IM/DM-call events, never community chat.
   const identityEvents19 = p19._handleWS;
   p19._handleWS = function (frame) {
     if (['globalMessage', 'roomMessage', 'globalMessages', 'roomMessages'].includes(frame.type)) return;

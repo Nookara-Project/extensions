@@ -122,10 +122,14 @@
 
     _handleWS(msg) {
       switch (msg.type) {
+        // Instant Messages
         case 'balance_changed':
           this._evtBalanceChanged = true;
           if (this._accountObj.account) this._accountObj.account.credits = (this._accountObj.account.credits || 0) + (msg.delta || 0);
           break;
+        // an admin changed which services this account can use (applies right away)
+        // achievements (granted from any of your apps - the launcher pops them up)
+        // ── Nookara Voice ──
       }
     }
     whenBalanceChanged()      { const v = this._evtBalanceChanged; this._evtBalanceChanged = false; return v; }
@@ -135,6 +139,9 @@
       const data = await this._http('/currency/balance').catch(() => ({}));
       return data.balance ?? 0;
     }
+    // Sending credits needs the person to say yes: Nookara opens a popup ("<project> is trying to
+    // make a payment to <user> of <n> credits") with Cancel / Pay, and Pay needs a captcha.
+    // The block waits until they answer; closing the popup = cancel.
     async transferCredits({ AMOUNT, USER }) {
       this._requireScope(SCOPES.CURRENCY_PAY);
       const data = await this._http('/currency/transfer-request', 'POST', { to: Scratch.Cast.toString(USER), amount: parseInt(AMOUNT) });
@@ -162,6 +169,7 @@
           try { closed = popup.closed; } catch (_) {}
           if (closed || Date.now() - started > 11 * 60 * 1000) {
             clearInterval(t);
+            // cancel only touches a pending request, so a payment that landed right as it closed still counts
             const c = await this._http(`/currency/transfer-request/${data.id}/cancel`, 'POST').catch(() => null);
             resolve(c && c.status ? c : { status: 'cancelled' });
           }
@@ -171,6 +179,7 @@
       this._lastActionSuccess = result.status === 'paid';
       if (result.status !== 'paid') throw new Error(result.status === 'failed' ? (result.error || 'Payment failed') : `Payment ${result.status}`);
     }
+    // Products (docs/PAYMENTS.md): adding to the cart moves no money, so it needs no credits scope. The person pays on the checkout page.
     async _addToCart(body) {
       if (!this._authenticated) throw new Error('Not logged in');
       const data = await this._http('/cart/items', 'POST', body);
@@ -187,6 +196,7 @@
     async addPaymentToCart({ AMOUNT, USER, NOTE }) {
       await this._addToCart({ to: Scratch.Cast.toString(USER), amount: Math.floor(Scratch.Cast.toNumber(AMOUNT)), note: Scratch.Cast.toString(NOTE) });
     }
+    // needs Transfer Credits, and nobody sees a page: the person gets a notification. Anything that bills later has to go through checkout
     async _payDirect(items) {
       this._requireScope(SCOPES.CURRENCY_PAY);
       const quote = await this._http('/checkout/direct/quote', 'POST', { items });
@@ -205,6 +215,7 @@
     async payUserDirect({ AMOUNT, USER, NOTE }) {
       await this._payDirect([{ to: Scratch.Cast.toString(USER), amount: Math.floor(Scratch.Cast.toNumber(AMOUNT)), note: Scratch.Cast.toString(NOTE) }]);
     }
+    // waits until the checkout window is closed; ask "owns product" afterwards to see what happened
     async openCheckout() {
       let popup = null;
       try {
@@ -267,6 +278,8 @@
     }
   }
 
+  // copy pasted from auth.js's SCOPES obj, gotta keep these two in sync by hand
+  // since this file can't just require() the server code lol
   const SCOPES = {
     PROFILE_READ: 1,
     PROFILE_SENSITIVE: 2,
@@ -274,7 +287,7 @@
     ACCOUNT_WRITE: 8,
     STORAGE_READ: 16,
     STORAGE_WRITE: 32,
-    VMAIL_READ: 64,
+    VMAIL_READ: 64,   // Instant Messages (was vMail, same bits so old tokens still work)
     VMAIL_SEND: 128,
     FRIENDS_READ: 256,
     FRIENDS_MANAGE: 512,
@@ -282,10 +295,11 @@
     CHAT: 2048,
     MEDIA_UPLOAD: 4096,
     CURRENCY_READ: 8192,
-    VOICE: 16384,
+    VOICE: 16384,     // Nookara Voice (voice rooms + calling people into them)
     SIGN_MESSAGES: 32768,
   };
   const p19 = NookaraExtension.prototype;
+  // Nookara continues to carry identity/presence/IM/DM-call events, never community chat.
   const identityEvents19 = p19._handleWS;
   p19._handleWS = function (frame) {
     if (['globalMessage', 'roomMessage', 'globalMessages', 'roomMessages'].includes(frame.type)) return;
