@@ -6,7 +6,7 @@
   const SERVER_HTTP = 'https://nookara.cc';
   const SERVER_WS   = 'wss://nookara.cc';
   const EXT_ID      = 'velora';
-  const EXTENSION_VERSION = '2.0.11';
+  const EXTENSION_VERSION = '2.0.12';
 
   // copy pasted from auth.js's SCOPES obj, gotta keep these two in sync by hand
   // since this file can't just require() the server code lol
@@ -6392,6 +6392,25 @@
     }
     return n <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(n) : n.toString();
   };
+  // Ember message text uses Discord's format: <@id> pings someone, <#cid> is a channel, <@&rid> a role, <:name:eid> an emoji.
+  // A plain "@name" is only text and pings nobody. Ids on an Ember server look like v:42 (a Nookara account), l:3, b:7.
+  const bfUserTok = /<@!?((?:[vlb]:)?\d{1,20})>/g, bfChanTok = /<#(c[0-9a-f]{10})>/g, bfRoleTok = /<@&(r[0-9a-f]{10})>/g, bfEmojiTok = /<a?:([A-Za-z0-9_]{1,32}):e[0-9a-f]{10}>/g;
+  const bfUniq = list => [...new Set(list)];
+  const bfMentions = text => {
+    const t = bfString(text);
+    return { users: bfUniq([...t.matchAll(bfUserTok)].map(m => m[1])), channels: bfUniq([...t.matchAll(bfChanTok)].map(m => m[1])), roles: bfUniq([...t.matchAll(bfRoleTok)].map(m => m[1])), everyone: /(^|\s)@everyone\b/.test(t), here: /(^|\s)@here\b/.test(t) };
+  };
+  // a link to an Ember channel / message: https://ember.nookara.cc/#/i/<server address>/s/<sid>/<cid>/<message id>
+  const bfParseLink = link => {
+    let u;
+    try { u = new URL(bfString(link).trim()); } catch { return null; }
+    if (!['ember.nookara.cc', 'nookara.cc', 'www.nookara.cc', 'velora.ikelene.net'].includes(u.hostname.toLowerCase()) || !['/', '/chat', '/chat/'].includes(u.pathname)) return null;
+    let parts = u.hash.split('/').slice(1), instance = null;
+    if (parts[0] === 'i') { try { instance = decodeURIComponent(parts[1] || ''); } catch { return null; } if (!/^https?:\/\/[^/|]+$/.test(instance)) return null; parts = parts.slice(2); }
+    const [a, sid, cid, mid] = parts;
+    if (a !== 's' || !/^s[0-9a-f]{10}$/.test(sid || '') || !/^c[0-9a-f]{10}$/.test(cid || '') || (mid && !/^\d{1,20}$/.test(mid))) return null;
+    return { server: instance, sid, cid, message: mid || null };
+  };
   const bfArg = (value = '', menu) => ({ type: Scratch.ArgumentType.STRING, defaultValue: value, ...(menu ? { menu } : {}) });
   const bfBlock = (opcode, blockType, text, args = {}) => ({ opcode, blockType, text, arguments: args });
   // pre-Bonfire routes for Nookara-hosted communities (read-only now) - see the note in getInfo below
@@ -6454,6 +6473,13 @@
       bfBlock('bfServerPermissionsJson', Scratch.BlockType.REPORTER, "permission names for my account in [SERVER] as JSON", { SERVER: bfArg('https://chat.ikelene.net') }),
       bfBlock('bfChannelPermissionsJson', Scratch.BlockType.REPORTER, "permission names for my account in [CHANNEL] of [SERVER] as JSON", { CHANNEL: bfArg('general'), SERVER: bfArg('https://chat.ikelene.net') }),
       bfBlock('bfRoles', Scratch.BlockType.REPORTER, "role directory for [SERVER] as JSON", { SERVER: bfArg('https://chat.ikelene.net') }),
+      bfBlock('bfMentionUser', Scratch.BlockType.REPORTER, "mention text for user [USER] in [SERVER]", { USER: bfArg('ikelene'), SERVER: bfArg('https://chat.ikelene.net') }),
+      bfBlock('bfChannelMention', Scratch.BlockType.REPORTER, "mention text for channel [CHANNEL] of [SERVER]", { CHANNEL: bfArg('general'), SERVER: bfArg('https://chat.ikelene.net') }),
+      bfBlock('bfMentionsJson', Scratch.BlockType.REPORTER, "mentions in [TEXT] as JSON", { TEXT: bfArg('hi <@v:1>') }),
+      bfBlock('bfMentionsMe', Scratch.BlockType.BOOLEAN, "[TEXT] mentions me in [SERVER]?", { TEXT: bfArg('hi <@v:1>'), SERVER: bfArg('https://chat.ikelene.net') }),
+      bfBlock('bfPlainText', Scratch.BlockType.REPORTER, "[TEXT] with mentions as names in [SERVER]", { TEXT: bfArg('hi <@v:1>'), SERVER: bfArg('https://chat.ikelene.net') }),
+      bfBlock('bfMessageLink', Scratch.BlockType.REPORTER, "link to message [ID] in channel [CHANNEL] of [SERVER]", { ID: bfArg(), CHANNEL: bfArg('general'), SERVER: bfArg('https://chat.ikelene.net') }),
+      bfBlock('bfMessageLinkJson', Scratch.BlockType.REPORTER, "message link [LINK] as JSON", { LINK: bfArg('https://ember.nookara.cc/#/s/s0123456789/c0123456789/1') }),
       bfBlock('bfSendReply', Scratch.BlockType.COMMAND, 'send [MSG] reply to [ID] attachments JSON [ATTACHMENTS] in channel [CHANNEL] of server [SERVER]', { MSG: bfArg('Hello!'), ID: bfArg(), ATTACHMENTS: bfArg('[]'), CHANNEL: bfArg('general'), SERVER: bfArg('https://chat.ikelene.net') }),
       bfBlock('bfTypingState', Scratch.BlockType.COMMAND, 'typing [STATE] in channel [CHANNEL] of server [SERVER]', { STATE: bfArg('on', 'onOff'), CHANNEL: bfArg('general'), SERVER: bfArg('https://chat.ikelene.net') }),
       bfBlock('bfJoinVoiceChannel', Scratch.BlockType.COMMAND, 'join voice channel [CHANNEL] of server [SERVER]', { CHANNEL: bfArg('Voice'), SERVER: bfArg('https://chat.ikelene.net') }),
@@ -6797,6 +6823,41 @@
       if (!Array.isArray(list)) list = [list];
       return bfPermNumber(list);
     },
+    // mentions (2.0.12): Ember text says <@id> / <#cid>; a plain "@name" pings nobody
+    async bfMentionUser({ USER, SERVER }) {
+      const who = bfString(USER).trim().replace(/^@/, '');
+      if (/^(?:[vlb]:)?\d{1,20}$/.test(who)) return `<@${who}>`;
+      const members = JSON.parse(await this.chatMembers({ SERVER }));
+      const key = who.toLowerCase();
+      const m = members.find(x => bfString(x.username).toLowerCase() === key) || members.find(x => bfString(x.display_name).toLowerCase() === key);
+      if (!m || m.id == null) throw new Error(`Nobody called "${who}" in that server.`);
+      return `<@${m.id}>`;
+    },
+    async bfChannelMention({ CHANNEL, SERVER }) { const { c } = await this._chatChannel(CHANNEL, SERVER); return `<#${bfString(c.cid).split('|').pop()}>`; },
+    bfMentionsJson({ TEXT }) { return JSON.stringify(bfMentions(TEXT)); },
+    async bfMentionsMe({ TEXT, SERVER }) {
+      const d = await this._chatServer(SERVER);
+      const me = d.instance?.user?.id ?? d.me?.id;
+      return me != null && bfMentions(TEXT).users.includes(bfString(me));
+    },
+    async bfPlainText({ TEXT, SERVER }) {
+      const d = await this._chatServer(SERVER);
+      const members = JSON.parse(await this.chatMembers({ SERVER }));
+      const nameOf = id => { const m = members.find(x => bfString(x.id) === id); return m ? (m.display_name || m.username) : 'unknown-user'; };
+      return bfString(TEXT)
+        .replace(bfUserTok, (_, id) => '@' + nameOf(id))
+        .replace(bfChanTok, (_, cid) => '#' + ((d.channels || []).find(c => bfString(c.cid).split('|').pop() === cid)?.name || 'unknown'))
+        .replace(bfRoleTok, (_, rid) => '@' + ((d.roles || []).find(r => r.rid === rid)?.name || 'role'))
+        .replace(bfEmojiTok, (_, name) => `:${name}:`);
+    },
+    async bfMessageLink({ ID, CHANNEL, SERVER }) {
+      const { d, c } = await this._chatChannel(CHANNEL, SERVER);
+      const sid = bfString(d.server?.sid || d.instance?.community?.sid).split('|').pop(), cid = bfString(c.cid).split('|').pop();
+      const id = bfString(ID).trim();
+      const at = d.instance?.origin ? `#/i/${encodeURIComponent(d.instance.origin)}` : '#';
+      return `https://ember.nookara.cc/${at}/s/${sid}/${cid}${/^\d{1,20}$/.test(id) ? '/' + id : ''}`;
+    },
+    bfMessageLinkJson({ LINK }) { const p = bfParseLink(LINK); return p ? JSON.stringify(p) : ''; },
     async bfServerPermissionsJson(args) { return JSON.stringify(bfPermNames(await this.bfServerPermissions(args))); },
     async bfChannelPermissionsJson(args) { return JSON.stringify(bfPermNames(await this.bfChannelPermissions(args))); },
     async bfServerPermissions({ SERVER }) { return Number((await this._chatServer(SERVER)).server.perms) || 0; },
@@ -8721,7 +8782,7 @@
   const identityRoute = path => /^\/chat\/(presence|users|dm|calls|personal-emojis)(\/|$)/.test(path) || /^\/chat\/bots\/[^/]+\/gallery(\/|$)/.test(path);
   const nativeSpecs = VELORA_ROUTES.filter(spec => spec.path.startsWith('/chat/') && !identityRoute(spec.path));
   const migratedOps = new Set([...bfOldChat, ...bfCoreBlocks.filter(b => b.opcode?.startsWith('chat') || ['whenChatMessage', 'whenAnyChatMessage'].includes(b.opcode)).map(b => b.opcode),
-    'bfWhenEvent', 'bfEventJson', 'bfEventField', 'bfServerPermissions', 'bfChannelPermissions', 'bfServerPermissionsJson', 'bfChannelPermissionsJson', 'bfHasPermission', 'bfRoles', 'bfSendReply', 'bfTypingState', 'bfJoinVoiceChannel',
+    'bfWhenEvent', 'bfEventJson', 'bfEventField', 'bfServerPermissions', 'bfChannelPermissions', 'bfServerPermissionsJson', 'bfChannelPermissionsJson', 'bfHasPermission', 'bfRoles', 'bfMentionUser', 'bfChannelMention', 'bfMentionsMe', 'bfPlainText', 'bfMessageLink', 'bfSendReply', 'bfTypingState', 'bfJoinVoiceChannel',
     'bfGameServers', 'bfGameStatus', 'bfGameOnline', 'bfGameConsole', 'bfGameCommand', 'bfWhenGameStatus', 'bfWhenGameConsole', 'bfCloudlinkStatus', 'bfCloudlinkConnected',
     ...nativeSpecs.map(s => s.opcode)]);
   const p19 = VeloraExtension.prototype;

@@ -390,6 +390,13 @@
           { opcode: 'bfServerPermissionsJson', blockType: Scratch.BlockType.REPORTER, text: 'my permissions in server [SERVER] as JSON', arguments: { SERVER: { type: Scratch.ArgumentType.STRING, defaultValue: 's1' } }, tooltip: 'Connect to the server first, then use server and channel IDs.' },
           { opcode: 'bfChannelPermissionsJson', blockType: Scratch.BlockType.REPORTER, text: 'my permissions in channel [CHANNEL] of server [SERVER] as JSON', arguments: { CHANNEL: { type: Scratch.ArgumentType.STRING, defaultValue: 'c1' }, SERVER: { type: Scratch.ArgumentType.STRING, defaultValue: 's1' } }, tooltip: 'Connect to the server first, then use server and channel IDs.' },
           { opcode: 'bfRoles', blockType: Scratch.BlockType.REPORTER, text: 'roles in server [SERVER] as JSON', arguments: { SERVER: { type: Scratch.ArgumentType.STRING, defaultValue: 's1' } }, tooltip: 'Connect to the server first, then use server and channel IDs.' },
+          { opcode: 'bfMentionUser', blockType: Scratch.BlockType.REPORTER, text: 'mention [USER] in server [SERVER]', arguments: { USER: { type: Scratch.ArgumentType.STRING, defaultValue: 'ikelene' }, SERVER: { type: Scratch.ArgumentType.STRING, defaultValue: 's1' } }, tooltip: 'Connect to the server first, then use server and channel IDs.' },
+          { opcode: 'bfChannelMention', blockType: Scratch.BlockType.REPORTER, text: 'mention channel [CHANNEL] of server [SERVER]', arguments: { CHANNEL: { type: Scratch.ArgumentType.STRING, defaultValue: 'c1' }, SERVER: { type: Scratch.ArgumentType.STRING, defaultValue: 's1' } }, tooltip: 'Connect to the server first, then use server and channel IDs.' },
+          { opcode: 'bfMentionsJson', blockType: Scratch.BlockType.REPORTER, text: 'who [TEXT] mentions as JSON', arguments: { TEXT: { type: Scratch.ArgumentType.STRING, defaultValue: 'hi <@v:1>' } } },
+          { opcode: 'bfMentionsMe', blockType: Scratch.BlockType.BOOLEAN, text: 'does [TEXT] mention me in server [SERVER]?', arguments: { TEXT: { type: Scratch.ArgumentType.STRING, defaultValue: 'hi <@v:1>' }, SERVER: { type: Scratch.ArgumentType.STRING, defaultValue: 's1' } }, tooltip: 'Connect to the server first, then use server and channel IDs.' },
+          { opcode: 'bfPlainText', blockType: Scratch.BlockType.REPORTER, text: '[TEXT] with names instead of mentions in server [SERVER]', arguments: { TEXT: { type: Scratch.ArgumentType.STRING, defaultValue: 'hi <@v:1>' }, SERVER: { type: Scratch.ArgumentType.STRING, defaultValue: 's1' } }, tooltip: 'Connect to the server first, then use server and channel IDs.' },
+          { opcode: 'bfMessageLink', blockType: Scratch.BlockType.REPORTER, text: 'link to message [ID] in channel [CHANNEL] of server [SERVER]', arguments: { ID: { type: Scratch.ArgumentType.STRING, defaultValue: '' }, CHANNEL: { type: Scratch.ArgumentType.STRING, defaultValue: 'c1' }, SERVER: { type: Scratch.ArgumentType.STRING, defaultValue: 's1' } }, tooltip: 'Connect to the server first, then use server and channel IDs.' },
+          { opcode: 'bfMessageLinkJson', blockType: Scratch.BlockType.REPORTER, text: 'message link [LINK] as JSON', arguments: { LINK: { type: Scratch.ArgumentType.STRING, defaultValue: 'https://ember.nookara.cc/#/s/s0123456789/c0123456789/1' } } },
           { opcode: 'bfSendReply', blockType: Scratch.BlockType.COMMAND, text: 'reply [MSG] to [ID] with attachments [ATTACHMENTS] in channel [CHANNEL] of server [SERVER]', arguments: { MSG: { type: Scratch.ArgumentType.STRING, defaultValue: 'Hello!' }, ID: { type: Scratch.ArgumentType.STRING, defaultValue: '' }, ATTACHMENTS: { type: Scratch.ArgumentType.STRING, defaultValue: '[]' }, CHANNEL: { type: Scratch.ArgumentType.STRING, defaultValue: 'c1' }, SERVER: { type: Scratch.ArgumentType.STRING, defaultValue: 's1' } }, tooltip: 'Connect to the server first, then use server and channel IDs.' },
           { opcode: 'bfTypingState', blockType: Scratch.BlockType.COMMAND, text: 'typing [STATE] in channel [CHANNEL] of server [SERVER]', arguments: { STATE: { type: Scratch.ArgumentType.STRING, defaultValue: 'on', menu: 'onOff' }, CHANNEL: { type: Scratch.ArgumentType.STRING, defaultValue: 'c1' }, SERVER: { type: Scratch.ArgumentType.STRING, defaultValue: 's1' } }, tooltip: 'Connect to the server first, then use server and channel IDs.' },
           { opcode: 'bfPlaySound', blockType: Scratch.BlockType.COMMAND, text: 'play Nookara sound [SOUND]', arguments: { SOUND: { type: Scratch.ArgumentType.STRING, defaultValue: 'snd' } }, hideFromPalette: true },
@@ -3514,6 +3521,25 @@
     }
     return n <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(n) : n.toString();
   };
+  // Ember message text uses Discord's format: <@id> pings someone, <#cid> is a channel, <@&rid> a role, <:name:eid> an emoji.
+  // A plain "@name" is only text and pings nobody. Ids on an Ember server look like v:42 (a Nookara account), l:3, b:7.
+  const bfUserTok = /<@!?((?:[vlb]:)?\d{1,20})>/g, bfChanTok = /<#(c[0-9a-f]{10})>/g, bfRoleTok = /<@&(r[0-9a-f]{10})>/g, bfEmojiTok = /<a?:([A-Za-z0-9_]{1,32}):e[0-9a-f]{10}>/g;
+  const bfUniq = list => [...new Set(list)];
+  const bfMentions = text => {
+    const t = bfString(text);
+    return { users: bfUniq([...t.matchAll(bfUserTok)].map(m => m[1])), channels: bfUniq([...t.matchAll(bfChanTok)].map(m => m[1])), roles: bfUniq([...t.matchAll(bfRoleTok)].map(m => m[1])), everyone: /(^|\s)@everyone\b/.test(t), here: /(^|\s)@here\b/.test(t) };
+  };
+  // a link to an Ember channel / message: https://ember.nookara.cc/#/i/<server address>/s/<sid>/<cid>/<message id>
+  const bfParseLink = link => {
+    let u;
+    try { u = new URL(bfString(link).trim()); } catch { return null; }
+    if (!['ember.nookara.cc', 'nookara.cc', 'www.nookara.cc', 'velora.ikelene.net'].includes(u.hostname.toLowerCase()) || !['/', '/chat', '/chat/'].includes(u.pathname)) return null;
+    let parts = u.hash.split('/').slice(1), instance = null;
+    if (parts[0] === 'i') { try { instance = decodeURIComponent(parts[1] || ''); } catch { return null; } if (!/^https?:\/\/[^/|]+$/.test(instance)) return null; parts = parts.slice(2); }
+    const [a, sid, cid, mid] = parts;
+    if (a !== 's' || !/^s[0-9a-f]{10}$/.test(sid || '') || !/^c[0-9a-f]{10}$/.test(cid || '') || (mid && !/^\d{1,20}$/.test(mid))) return null;
+    return { server: instance, sid, cid, message: mid || null };
+  };
   Object.assign(NookaraExtension.prototype, {
     async _chatChannel(chRef, srvRef) {
       const d = await this._chatServer(srvRef);
@@ -3629,6 +3655,41 @@
       if (!Array.isArray(list)) list = [list];
       return bfPermNumber(list);
     },
+    // mentions (2.0.12): Ember text says <@id> / <#cid>; a plain "@name" pings nobody
+    async bfMentionUser({ USER, SERVER }) {
+      const who = bfString(USER).trim().replace(/^@/, '');
+      if (/^(?:[vlb]:)?\d{1,20}$/.test(who)) return `<@${who}>`;
+      const members = JSON.parse(await this.chatMembers({ SERVER }));
+      const key = who.toLowerCase();
+      const m = members.find(x => bfString(x.username).toLowerCase() === key) || members.find(x => bfString(x.display_name).toLowerCase() === key);
+      if (!m || m.id == null) throw new Error(`Nobody called "${who}" in that server.`);
+      return `<@${m.id}>`;
+    },
+    async bfChannelMention({ CHANNEL, SERVER }) { const { c } = await this._chatChannel(CHANNEL, SERVER); return `<#${bfString(c.cid).split('|').pop()}>`; },
+    bfMentionsJson({ TEXT }) { return JSON.stringify(bfMentions(TEXT)); },
+    async bfMentionsMe({ TEXT, SERVER }) {
+      const d = await this._chatServer(SERVER);
+      const me = d.instance?.user?.id ?? d.me?.id;
+      return me != null && bfMentions(TEXT).users.includes(bfString(me));
+    },
+    async bfPlainText({ TEXT, SERVER }) {
+      const d = await this._chatServer(SERVER);
+      const members = JSON.parse(await this.chatMembers({ SERVER }));
+      const nameOf = id => { const m = members.find(x => bfString(x.id) === id); return m ? (m.display_name || m.username) : 'unknown-user'; };
+      return bfString(TEXT)
+        .replace(bfUserTok, (_, id) => '@' + nameOf(id))
+        .replace(bfChanTok, (_, cid) => '#' + ((d.channels || []).find(c => bfString(c.cid).split('|').pop() === cid)?.name || 'unknown'))
+        .replace(bfRoleTok, (_, rid) => '@' + ((d.roles || []).find(r => r.rid === rid)?.name || 'role'))
+        .replace(bfEmojiTok, (_, name) => `:${name}:`);
+    },
+    async bfMessageLink({ ID, CHANNEL, SERVER }) {
+      const { d, c } = await this._chatChannel(CHANNEL, SERVER);
+      const sid = bfString(d.server?.sid || d.instance?.community?.sid).split('|').pop(), cid = bfString(c.cid).split('|').pop();
+      const id = bfString(ID).trim();
+      const at = d.instance?.origin ? `#/i/${encodeURIComponent(d.instance.origin)}` : '#';
+      return `https://ember.nookara.cc/${at}/s/${sid}/${cid}${/^\d{1,20}$/.test(id) ? '/' + id : ''}`;
+    },
+    bfMessageLinkJson({ LINK }) { const p = bfParseLink(LINK); return p ? JSON.stringify(p) : ''; },
     async bfServerPermissionsJson(args) { return JSON.stringify(bfPermNames(await this.bfServerPermissions(args))); },
     async bfChannelPermissionsJson(args) { return JSON.stringify(bfPermNames(await this.bfChannelPermissions(args))); },
     async bfServerPermissions({ SERVER }) { return Number((await this._chatServer(SERVER)).server.perms) || 0; },

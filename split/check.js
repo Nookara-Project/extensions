@@ -169,6 +169,16 @@ async function callAll(exts, revive) {
     const all = JSON.parse(ext.bfPermissionsJson({ BITS: 8191 }));
     if (ext.bfPermissionsNumber({ NAMES: JSON.stringify(all) }) !== 8191 || all.length !== 13) fail('all permissions round trip');
   }
+  // mention tokens (2.0.12): <@id> / <#cid>, a plain @name is not a mention, message links both ways
+  for (const ext of [chat, oldExt]) {
+    const m = JSON.parse(ext.bfMentionsJson({ TEXT: 'hi <@v:42> <@7> <@v:42> <#c0123456789> <@&rabcdef0123> @here' }));
+    if (JSON.stringify([m.users, m.channels, m.roles, m.everyone, m.here]) !== '[["v:42","7"],["c0123456789"],["rabcdef0123"],false,true]') fail('mentions as JSON');
+    if (JSON.parse(ext.bfMentionsJson({ TEXT: '@yell at me for your projects' })).users.length) fail('a plain @name is not a mention');
+    if (await ext.bfMentionUser({ USER: 'v:42', SERVER: 's1' }) !== '<@v:42>' || await ext.bfMentionUser({ USER: '@42', SERVER: 's1' }) !== '<@42>') fail('mention text for an id');
+    const link = JSON.parse(ext.bfMessageLinkJson({ LINK: 'https://ember.nookara.cc/#/i/https%3A%2F%2Fchat.example.com/s/s0123456789/c0123456789/55' }) || '{}');
+    if (JSON.stringify(link) !== '{"server":"https://chat.example.com","sid":"s0123456789","cid":"c0123456789","message":"55"}') fail('message link as JSON');
+    if (ext.bfMessageLinkJson({ LINK: 'https://example.com/#/s/s0123456789/c0123456789' }) !== '' || ext.bfMessageLinkJson({ LINK: 'https://ember.nookara.cc/#/dm/nat' }) !== '') fail('not a message link');
+  }
   if (core.getInfo().blocks.find(b => b.opcode === 'getAccountKey').text !== 'get [KEY]') fail('plain wording not applied');
   const inputs = t => (t.match(/\[[A-Z_0-9]+\]/g) || []).sort().join();
   const oldBlocks = new Map(oldExt.getInfo().blocks.filter(b => b.opcode).map(b => [b.opcode, b]));
