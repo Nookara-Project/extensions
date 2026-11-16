@@ -155,6 +155,20 @@ async function callAll(exts, revive) {
   if (core.getAccountKey({ KEY: 'pfp' }) !== 'pic' || core.getAccountKey({ KEY: 'avatar_url' }) !== 'pic') fail('pfp menu word');
   if (!core.keyExists({ KEY: 'pfp' })) fail('keyExists does not take the plain word');
   if (chat.bfPermissionBit({ PERMISSION: 'admin' }) !== 512 || chat.bfPermissionBit({ PERMISSION: 'ADMIN' }) !== 512) fail('permission menu word');
+  // ember permission numbers <-> names, both ways, with words, unknown bits and numbers past 2^53
+  for (const ext of [chat, oldExt]) {
+    if (ext.bfPermissionsJson({ BITS: 257 }) !== '["SEND","ATTACH"]') fail('permissions as JSON');
+    if (ext.bfPermissionsJson({ BITS: '0' }) !== '[]' || ext.bfPermissionsJson({ BITS: '0x101' }) !== '["SEND","ATTACH"]') fail('permissions as JSON: 0 / hex');
+    if (ext.bfPermissionsNumber({ NAMES: '["SEND","ATTACH"]' }) !== 257 || ext.bfPermissionsNumber({ NAMES: 'send messages, attach files' }) !== 257) fail('number for permissions');
+    if (ext.bfPermissionsNumber({ NAMES: '[]' }) !== 0 || ext.bfPermissionsNumber({ NAMES: '"admin"' }) !== 512) fail('number for permissions: empty / one name');
+    if (ext.bfPermissionsJson({ BITS: 8192 + 4096 }) !== '["UNMARKED_ALIASES","BIT_13"]' || ext.bfPermissionsNumber({ NAMES: '["UNMARKED_ALIASES","BIT_13"]' }) !== 12288) fail('unknown bits round trip');
+    if (ext.bfPermissionsNumber({ NAMES: '["BIT_60","SEND"]' }) !== '1152921504606846977' || !ext.bfPermissionsJson({ BITS: '1152921504606846977' }).endsWith('"BIT_60"]')) fail('permissions past 2^53');
+    const rejects = async f => { try { await f(); return false; } catch { return true; } }; // the extension turns a thrown error into a rejected promise
+    if (!(await rejects(() => ext.bfPermissionsNumber({ NAMES: '["NOPE"]' })))) fail('unknown permission name should throw');
+    if (!(await rejects(() => ext.bfPermissionsJson({ BITS: 'abc' })))) fail('bad permission number should throw');
+    const all = JSON.parse(ext.bfPermissionsJson({ BITS: 8191 }));
+    if (ext.bfPermissionsNumber({ NAMES: JSON.stringify(all) }) !== 8191 || all.length !== 13) fail('all permissions round trip');
+  }
   if (core.getInfo().blocks.find(b => b.opcode === 'getAccountKey').text !== 'get [KEY]') fail('plain wording not applied');
   const inputs = t => (t.match(/\[[A-Z_0-9]+\]/g) || []).sort().join();
   const oldBlocks = new Map(oldExt.getInfo().blocks.filter(b => b.opcode).map(b => [b.opcode, b]));

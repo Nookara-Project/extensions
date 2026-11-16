@@ -6,7 +6,7 @@
   const SERVER_HTTP = 'https://nookara.cc';
   const SERVER_WS   = 'wss://nookara.cc';
   const EXT_ID      = 'velora';
-  const EXTENSION_VERSION = '2.0.10';
+  const EXTENSION_VERSION = '2.0.11';
 
   // copy pasted from auth.js's SCOPES obj, gotta keep these two in sync by hand
   // since this file can't just require() the server code lol
@@ -6362,8 +6362,36 @@
       ]
     }
 ];
-  const VELORA_PERMS = { SEND: 1, MANAGE_CHANNELS: 2, MANAGE_SERVER: 4, MANAGE_ROLES: 8, KICK: 16, BAN: 32, MANAGE_MESSAGES: 64, MENTION_EVERYONE: 128, ATTACH: 256, ADMIN: 512, VIEW: 1024 };
+  const VELORA_PERMS = { SEND: 1, MANAGE_CHANNELS: 2, MANAGE_SERVER: 4, MANAGE_ROLES: 8, KICK: 16, BAN: 32, MANAGE_MESSAGES: 64, MENTION_EVERYONE: 128, ATTACH: 256, ADMIN: 512, VIEW: 1024, MANAGE_USERS: 2048, UNMARKED_ALIASES: 4096 };
   const bfString = value => Scratch.Cast.toString(value);
+  // ember permission numbers <-> names. BigInt so nothing breaks if the list ever passes 2^53. bits we don't know come out as BIT_n and go back in the same way
+  const bfPermWord = name => bfString(name).trim().toUpperCase().replace(/[\s-]+/g, '_');
+  const bfPermAliases = { SEND_MESSAGES: 'SEND', KICK_MEMBERS: 'KICK', BAN_MEMBERS: 'BAN', ATTACH_FILES: 'ATTACH', ADMINISTRATOR: 'ADMIN', VIEW_CHANNEL: 'VIEW', UNMARKED_ALIAS: 'UNMARKED_ALIASES' };
+  const bfPermBig = value => {
+    const text = bfString(value).trim().replace(/\.0+$/, '');
+    if (!/^(\d+|0x[0-9a-f]+|0b[01]+)$/i.test(text)) throw new Error('Permissions must be a whole number, like 257. See nookara.cc/docs/ember-permissions');
+    return BigInt(text.toLowerCase());
+  };
+  const bfPermNames = value => {
+    const n = bfPermBig(value);
+    const out = Object.entries(VELORA_PERMS).filter(([, bit]) => (n & BigInt(bit)) !== 0n).map(([name]) => name);
+    let rest = n & ~BigInt(Object.values(VELORA_PERMS).reduce((a, b) => a | b, 0));
+    for (let bit = 0; rest > 0n; bit++, rest >>= 1n) if (rest & 1n) out.push('BIT_' + bit);
+    return out;
+  };
+  const bfPermNumber = list => {
+    let n = 0n;
+    for (const raw of list) {
+      const word = bfPermWord(raw);
+      if (!word) continue;
+      const name = VELORA_PERMS[word] ? word : bfPermAliases[word];
+      const extra = /^BIT_(\d{1,3})$/.exec(word);
+      if (name) n |= BigInt(VELORA_PERMS[name]);
+      else if (extra) n |= 1n << BigInt(extra[1]);
+      else throw new Error(`Unknown permission "${bfString(raw)}". Use names like SEND or ATTACH (nookara.cc/docs/ember-permissions).`);
+    }
+    return n <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(n) : n.toString();
+  };
   const bfArg = (value = '', menu) => ({ type: Scratch.ArgumentType.STRING, defaultValue: value, ...(menu ? { menu } : {}) });
   const bfBlock = (opcode, blockType, text, args = {}) => ({ opcode, blockType, text, arguments: args });
   // pre-Bonfire routes for Nookara-hosted communities (read-only now) - see the note in getInfo below
@@ -6421,6 +6449,10 @@
       bfBlock('bfChannelPermissions', Scratch.BlockType.REPORTER, "permission mask for my account in [CHANNEL] of [SERVER]", { CHANNEL: bfArg('general'), SERVER: bfArg('https://chat.ikelene.net') }),
       bfBlock('bfHasPermission', Scratch.BlockType.BOOLEAN, "permission [PERMISSION] granted in [CHANNEL] of [SERVER]?", { PERMISSION: bfArg('SEND', 'bfPermissions'), CHANNEL: bfArg('general'), SERVER: bfArg('https://chat.ikelene.net') }),
       bfBlock('bfPermissionBit', Scratch.BlockType.REPORTER, "numeric flag for permission [PERMISSION]", { PERMISSION: bfArg('SEND', 'bfPermissions') }),
+      bfBlock('bfPermissionsJson', Scratch.BlockType.REPORTER, "permission names in [BITS] as JSON", { BITS: bfArg('257') }),
+      bfBlock('bfPermissionsNumber', Scratch.BlockType.REPORTER, "permission mask for names [NAMES]", { NAMES: bfArg('["SEND","ATTACH"]') }),
+      bfBlock('bfServerPermissionsJson', Scratch.BlockType.REPORTER, "permission names for my account in [SERVER] as JSON", { SERVER: bfArg('https://chat.ikelene.net') }),
+      bfBlock('bfChannelPermissionsJson', Scratch.BlockType.REPORTER, "permission names for my account in [CHANNEL] of [SERVER] as JSON", { CHANNEL: bfArg('general'), SERVER: bfArg('https://chat.ikelene.net') }),
       bfBlock('bfRoles', Scratch.BlockType.REPORTER, "role directory for [SERVER] as JSON", { SERVER: bfArg('https://chat.ikelene.net') }),
       bfBlock('bfSendReply', Scratch.BlockType.COMMAND, 'send [MSG] reply to [ID] attachments JSON [ATTACHMENTS] in channel [CHANNEL] of server [SERVER]', { MSG: bfArg('Hello!'), ID: bfArg(), ATTACHMENTS: bfArg('[]'), CHANNEL: bfArg('general'), SERVER: bfArg('https://chat.ikelene.net') }),
       bfBlock('bfTypingState', Scratch.BlockType.COMMAND, 'typing [STATE] in channel [CHANNEL] of server [SERVER]', { STATE: bfArg('on', 'onOff'), CHANNEL: bfArg('general'), SERVER: bfArg('https://chat.ikelene.net') }),
@@ -6757,11 +6789,21 @@
     bfEventJson() { return JSON.stringify(this._bfLastEvent || {}); },
     bfEventField({ FIELD }) { const value = this._bfLastEvent?.[bfString(FIELD)]; return value == null ? '' : typeof value === 'object' ? JSON.stringify(value) : value; },
     bfPermissionBit({ PERMISSION }) { return VELORA_PERMS[bfString(PERMISSION)] || 0; },
+    bfPermissionsJson({ BITS }) { return JSON.stringify(bfPermNames(BITS)); },
+    bfPermissionsNumber({ NAMES }) {
+      const text = bfString(NAMES).trim();
+      let list;
+      try { list = JSON.parse(text); } catch { list = text.split(','); }
+      if (!Array.isArray(list)) list = [list];
+      return bfPermNumber(list);
+    },
+    async bfServerPermissionsJson(args) { return JSON.stringify(bfPermNames(await this.bfServerPermissions(args))); },
+    async bfChannelPermissionsJson(args) { return JSON.stringify(bfPermNames(await this.bfChannelPermissions(args))); },
     async bfServerPermissions({ SERVER }) { return Number((await this._chatServer(SERVER)).server.perms) || 0; },
     async bfChannelPermissions({ CHANNEL, SERVER }) {
       const { c, d } = await this._chatChannel(CHANNEL, SERVER);
       const base = Number(d.server.perms) || 0;
-      if (base === 1023) return 2047;
+      if (base & VELORA_PERMS.ADMIN) return base | VELORA_PERMS.VIEW;
       let bits = base | 1024;
       const members = JSON.parse(await this.chatMembers({ SERVER }));
       const me = members.find(m => m.username.toLowerCase() === (this._username || this._accountObj.username || '').toLowerCase());
@@ -8679,7 +8721,7 @@
   const identityRoute = path => /^\/chat\/(presence|users|dm|calls|personal-emojis)(\/|$)/.test(path) || /^\/chat\/bots\/[^/]+\/gallery(\/|$)/.test(path);
   const nativeSpecs = VELORA_ROUTES.filter(spec => spec.path.startsWith('/chat/') && !identityRoute(spec.path));
   const migratedOps = new Set([...bfOldChat, ...bfCoreBlocks.filter(b => b.opcode?.startsWith('chat') || ['whenChatMessage', 'whenAnyChatMessage'].includes(b.opcode)).map(b => b.opcode),
-    'bfWhenEvent', 'bfEventJson', 'bfEventField', 'bfServerPermissions', 'bfChannelPermissions', 'bfHasPermission', 'bfRoles', 'bfSendReply', 'bfTypingState', 'bfJoinVoiceChannel',
+    'bfWhenEvent', 'bfEventJson', 'bfEventField', 'bfServerPermissions', 'bfChannelPermissions', 'bfServerPermissionsJson', 'bfChannelPermissionsJson', 'bfHasPermission', 'bfRoles', 'bfSendReply', 'bfTypingState', 'bfJoinVoiceChannel',
     'bfGameServers', 'bfGameStatus', 'bfGameOnline', 'bfGameConsole', 'bfGameCommand', 'bfWhenGameStatus', 'bfWhenGameConsole', 'bfCloudlinkStatus', 'bfCloudlinkConnected',
     ...nativeSpecs.map(s => s.opcode)]);
   const p19 = VeloraExtension.prototype;

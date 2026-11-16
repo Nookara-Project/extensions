@@ -373,6 +373,10 @@ const TEXT = {
   bfChannelPermissions: 'my permissions in channel [CHANNEL] of server [SERVER]',
   bfHasPermission: 'can I [PERMISSION] in channel [CHANNEL] of server [SERVER]?',
   bfPermissionBit: 'number for permission [PERMISSION]',
+  bfPermissionsJson: 'permissions in [BITS] as JSON',
+  bfPermissionsNumber: 'number for permissions [NAMES]',
+  bfServerPermissionsJson: 'my permissions in server [SERVER] as JSON',
+  bfChannelPermissionsJson: 'my permissions in channel [CHANNEL] of server [SERVER] as JSON',
   bfRoles: 'roles in server [SERVER] as JSON',
   bfSendReply: 'reply [MSG] to [ID] with attachments [ATTACHMENTS] in channel [CHANNEL] of server [SERVER]',
   bfTypingState: 'typing [STATE] in channel [CHANNEL] of server [SERVER]',
@@ -464,7 +468,7 @@ const MENUS = {
   arcadeBadgeProps: { 'image URL': 'image', 'badge id': 'id' },
   biInstanceProps: { 'icon url': 'icon', 'build id': 'build', 'built at': 'build date', 'accounts mode': 'accounts', 'join policy': 'who can join', 'community name': 'server name', 'community id': 'server id', 'hosting plan': 'plan', 'max upload MB': 'upload limit (MB)' },
   biLastProps: { 'alias name': 'bot name', 'alias avatar': 'bot avatar', 'alias unmarked?': 'bot name unmarked?', 'server says verified': 'verified' },
-  bfPermissions: { SEND: 'send messages', MANAGE_CHANNELS: 'manage channels', MANAGE_SERVER: 'manage server', MANAGE_ROLES: 'manage roles', KICK: 'kick', BAN: 'ban', MANAGE_MESSAGES: 'manage messages', MENTION_EVERYONE: 'mention everyone', ATTACH: 'attach files', ADMIN: 'admin', VIEW: 'view' },
+  bfPermissions: { SEND: 'send messages', MANAGE_CHANNELS: 'manage channels', MANAGE_SERVER: 'manage server', MANAGE_ROLES: 'manage roles', KICK: 'kick', BAN: 'ban', MANAGE_MESSAGES: 'manage messages', MENTION_EVERYONE: 'mention everyone', ATTACH: 'attach files', ADMIN: 'admin', VIEW: 'view', MANAGE_USERS: 'manage users', UNMARKED_ALIASES: 'unmarked aliases' },
 };
 
 // a menu that takes a dropped reporter should also take what the menu now says

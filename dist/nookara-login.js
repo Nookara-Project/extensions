@@ -719,7 +719,7 @@
     }
   }
 
-  const EXTENSION_VERSION = '2.0.10';
+  const EXTENSION_VERSION = '2.0.11';
   // copy pasted from auth.js's SCOPES obj, gotta keep these two in sync by hand
   // since this file can't just require() the server code lol
   const SCOPES = {

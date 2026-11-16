@@ -385,6 +385,10 @@
           { opcode: 'bfChannelPermissions', blockType: Scratch.BlockType.REPORTER, text: 'my permissions in channel [CHANNEL] of server [SERVER]', arguments: { CHANNEL: { type: Scratch.ArgumentType.STRING, defaultValue: 'c1' }, SERVER: { type: Scratch.ArgumentType.STRING, defaultValue: 's1' } }, tooltip: 'Connect to the server first, then use server and channel IDs.' },
           { opcode: 'bfHasPermission', blockType: Scratch.BlockType.BOOLEAN, text: 'can I [PERMISSION] in channel [CHANNEL] of server [SERVER]?', arguments: { PERMISSION: { type: Scratch.ArgumentType.STRING, defaultValue: 'SEND', menu: 'bfPermissions' }, CHANNEL: { type: Scratch.ArgumentType.STRING, defaultValue: 'c1' }, SERVER: { type: Scratch.ArgumentType.STRING, defaultValue: 's1' } }, tooltip: 'Connect to the server first, then use server and channel IDs.' },
           { opcode: 'bfPermissionBit', blockType: Scratch.BlockType.REPORTER, text: 'number for permission [PERMISSION]', arguments: { PERMISSION: { type: Scratch.ArgumentType.STRING, defaultValue: 'SEND', menu: 'bfPermissions' } } },
+          { opcode: 'bfPermissionsJson', blockType: Scratch.BlockType.REPORTER, text: 'permissions in [BITS] as JSON', arguments: { BITS: { type: Scratch.ArgumentType.STRING, defaultValue: '257' } } },
+          { opcode: 'bfPermissionsNumber', blockType: Scratch.BlockType.REPORTER, text: 'number for permissions [NAMES]', arguments: { NAMES: { type: Scratch.ArgumentType.STRING, defaultValue: '["SEND","ATTACH"]' } } },
+          { opcode: 'bfServerPermissionsJson', blockType: Scratch.BlockType.REPORTER, text: 'my permissions in server [SERVER] as JSON', arguments: { SERVER: { type: Scratch.ArgumentType.STRING, defaultValue: 's1' } }, tooltip: 'Connect to the server first, then use server and channel IDs.' },
+          { opcode: 'bfChannelPermissionsJson', blockType: Scratch.BlockType.REPORTER, text: 'my permissions in channel [CHANNEL] of server [SERVER] as JSON', arguments: { CHANNEL: { type: Scratch.ArgumentType.STRING, defaultValue: 'c1' }, SERVER: { type: Scratch.ArgumentType.STRING, defaultValue: 's1' } }, tooltip: 'Connect to the server first, then use server and channel IDs.' },
           { opcode: 'bfRoles', blockType: Scratch.BlockType.REPORTER, text: 'roles in server [SERVER] as JSON', arguments: { SERVER: { type: Scratch.ArgumentType.STRING, defaultValue: 's1' } }, tooltip: 'Connect to the server first, then use server and channel IDs.' },
           { opcode: 'bfSendReply', blockType: Scratch.BlockType.COMMAND, text: 'reply [MSG] to [ID] with attachments [ATTACHMENTS] in channel [CHANNEL] of server [SERVER]', arguments: { MSG: { type: Scratch.ArgumentType.STRING, defaultValue: 'Hello!' }, ID: { type: Scratch.ArgumentType.STRING, defaultValue: '' }, ATTACHMENTS: { type: Scratch.ArgumentType.STRING, defaultValue: '[]' }, CHANNEL: { type: Scratch.ArgumentType.STRING, defaultValue: 'c1' }, SERVER: { type: Scratch.ArgumentType.STRING, defaultValue: 's1' } }, tooltip: 'Connect to the server first, then use server and channel IDs.' },
           { opcode: 'bfTypingState', blockType: Scratch.BlockType.COMMAND, text: 'typing [STATE] in channel [CHANNEL] of server [SERVER]', arguments: { STATE: { type: Scratch.ArgumentType.STRING, defaultValue: 'on', menu: 'onOff' }, CHANNEL: { type: Scratch.ArgumentType.STRING, defaultValue: 'c1' }, SERVER: { type: Scratch.ArgumentType.STRING, defaultValue: 's1' } }, tooltip: 'Connect to the server first, then use server and channel IDs.' },
@@ -436,7 +440,7 @@
           biConnectionStates: { acceptReporters: true, items: ['connecting', 'connected', 'disconnected', 'error'] },
           biInstanceProps: { acceptReporters: true, items: ['name', 'description', { text: 'icon', value: 'icon url' }, 'version', 'commit', { text: 'build', value: 'build id' }, { text: 'build date', value: 'built at' }, 'protocol', { text: 'accounts', value: 'accounts mode' }, 'registration', 'member count', { text: 'who can join', value: 'join policy' }, { text: 'server name', value: 'community name' }, { text: 'server id', value: 'community id' }, 'read only', { text: 'plan', value: 'hosting plan' }, { text: 'upload limit (MB)', value: 'max upload MB' }, 'update available', 'JSON'] },
           biFeatures: { acceptReporters: true, items: ['voice', 'signing', 'uploads', 'youtube', 'minecraft', 'discord bridge', 'fluxer bridge', 'cloudlink bridge'] },
-          bfPermissions: { acceptReporters: true, items: [{ text: 'send messages', value: 'SEND' }, { text: 'manage channels', value: 'MANAGE_CHANNELS' }, { text: 'manage server', value: 'MANAGE_SERVER' }, { text: 'manage roles', value: 'MANAGE_ROLES' }, { text: 'kick', value: 'KICK' }, { text: 'ban', value: 'BAN' }, { text: 'manage messages', value: 'MANAGE_MESSAGES' }, { text: 'mention everyone', value: 'MENTION_EVERYONE' }, { text: 'attach files', value: 'ATTACH' }, { text: 'admin', value: 'ADMIN' }, { text: 'view', value: 'VIEW' }] },
+          bfPermissions: { acceptReporters: true, items: [{ text: 'send messages', value: 'SEND' }, { text: 'manage channels', value: 'MANAGE_CHANNELS' }, { text: 'manage server', value: 'MANAGE_SERVER' }, { text: 'manage roles', value: 'MANAGE_ROLES' }, { text: 'kick', value: 'KICK' }, { text: 'ban', value: 'BAN' }, { text: 'manage messages', value: 'MANAGE_MESSAGES' }, { text: 'mention everyone', value: 'MENTION_EVERYONE' }, { text: 'attach files', value: 'ATTACH' }, { text: 'admin', value: 'ADMIN' }, { text: 'view', value: 'VIEW' }, { text: 'manage users', value: 'MANAGE_USERS' }, { text: 'unmarked aliases', value: 'UNMARKED_ALIASES' }] },
           biRoleActions: { acceptReporters: false, items: ['add', 'remove'] },
           biChannelProps: { acceptReporters: true, items: ['id', 'name', 'type', 'topic', 'locked', 'can post', 'JSON'] },
           biChannelTypes: { acceptReporters: true, items: ['text', 'voice', 'logs', 'welcome', 'link', 'starboard'] },
@@ -3480,8 +3484,36 @@
     ]
   },
   ];
-  const VELORA_PERMS = { SEND: 1, MANAGE_CHANNELS: 2, MANAGE_SERVER: 4, MANAGE_ROLES: 8, KICK: 16, BAN: 32, MANAGE_MESSAGES: 64, MENTION_EVERYONE: 128, ATTACH: 256, ADMIN: 512, VIEW: 1024 };
+  const VELORA_PERMS = { SEND: 1, MANAGE_CHANNELS: 2, MANAGE_SERVER: 4, MANAGE_ROLES: 8, KICK: 16, BAN: 32, MANAGE_MESSAGES: 64, MENTION_EVERYONE: 128, ATTACH: 256, ADMIN: 512, VIEW: 1024, MANAGE_USERS: 2048, UNMARKED_ALIASES: 4096 };
   const bfString = value => Scratch.Cast.toString(value);
+  // ember permission numbers <-> names. BigInt so nothing breaks if the list ever passes 2^53. bits we don't know come out as BIT_n and go back in the same way
+  const bfPermWord = name => bfString(name).trim().toUpperCase().replace(/[\s-]+/g, '_');
+  const bfPermAliases = { SEND_MESSAGES: 'SEND', KICK_MEMBERS: 'KICK', BAN_MEMBERS: 'BAN', ATTACH_FILES: 'ATTACH', ADMINISTRATOR: 'ADMIN', VIEW_CHANNEL: 'VIEW', UNMARKED_ALIAS: 'UNMARKED_ALIASES' };
+  const bfPermBig = value => {
+    const text = bfString(value).trim().replace(/\.0+$/, '');
+    if (!/^(\d+|0x[0-9a-f]+|0b[01]+)$/i.test(text)) throw new Error('Permissions must be a whole number, like 257. See nookara.cc/docs/ember-permissions');
+    return BigInt(text.toLowerCase());
+  };
+  const bfPermNames = value => {
+    const n = bfPermBig(value);
+    const out = Object.entries(VELORA_PERMS).filter(([, bit]) => (n & BigInt(bit)) !== 0n).map(([name]) => name);
+    let rest = n & ~BigInt(Object.values(VELORA_PERMS).reduce((a, b) => a | b, 0));
+    for (let bit = 0; rest > 0n; bit++, rest >>= 1n) if (rest & 1n) out.push('BIT_' + bit);
+    return out;
+  };
+  const bfPermNumber = list => {
+    let n = 0n;
+    for (const raw of list) {
+      const word = bfPermWord(raw);
+      if (!word) continue;
+      const name = VELORA_PERMS[word] ? word : bfPermAliases[word];
+      const extra = /^BIT_(\d{1,3})$/.exec(word);
+      if (name) n |= BigInt(VELORA_PERMS[name]);
+      else if (extra) n |= 1n << BigInt(extra[1]);
+      else throw new Error(`Unknown permission "${bfString(raw)}". Use names like SEND or ATTACH (nookara.cc/docs/ember-permissions).`);
+    }
+    return n <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(n) : n.toString();
+  };
   Object.assign(NookaraExtension.prototype, {
     async _chatChannel(chRef, srvRef) {
       const d = await this._chatServer(srvRef);
@@ -3589,11 +3621,21 @@
     bfEventJson() { return JSON.stringify(this._bfLastEvent || {}); },
     bfEventField({ FIELD }) { const value = this._bfLastEvent?.[bfString(FIELD)]; return value == null ? '' : typeof value === 'object' ? JSON.stringify(value) : value; },
     bfPermissionBit({ PERMISSION }) { return VELORA_PERMS[bfString(PERMISSION)] || 0; },
+    bfPermissionsJson({ BITS }) { return JSON.stringify(bfPermNames(BITS)); },
+    bfPermissionsNumber({ NAMES }) {
+      const text = bfString(NAMES).trim();
+      let list;
+      try { list = JSON.parse(text); } catch { list = text.split(','); }
+      if (!Array.isArray(list)) list = [list];
+      return bfPermNumber(list);
+    },
+    async bfServerPermissionsJson(args) { return JSON.stringify(bfPermNames(await this.bfServerPermissions(args))); },
+    async bfChannelPermissionsJson(args) { return JSON.stringify(bfPermNames(await this.bfChannelPermissions(args))); },
     async bfServerPermissions({ SERVER }) { return Number((await this._chatServer(SERVER)).server.perms) || 0; },
     async bfChannelPermissions({ CHANNEL, SERVER }) {
       const { c, d } = await this._chatChannel(CHANNEL, SERVER);
       const base = Number(d.server.perms) || 0;
-      if (base === 1023) return 2047;
+      if (base & VELORA_PERMS.ADMIN) return base | VELORA_PERMS.VIEW;
       let bits = base | 1024;
       const members = JSON.parse(await this.chatMembers({ SERVER }));
       const me = members.find(m => m.username.toLowerCase() === (this._username || this._accountObj.username || '').toLowerCase());
@@ -5344,7 +5386,7 @@
   const veloraExt = new NookaraExtension(Scratch.vm.runtime);
 
   // the menus show plain words but keep their old values, a dropped reporter can say either
-  const MENU_WORDS = { biInstanceProps: { icon: 'icon url', build: 'build id', 'build date': 'built at', accounts: 'accounts mode', 'who can join': 'join policy', 'server name': 'community name', 'server id': 'community id', plan: 'hosting plan', 'upload limit (MB)': 'max upload MB' }, bfPermissions: { 'send messages': 'SEND', 'manage channels': 'MANAGE_CHANNELS', 'manage server': 'MANAGE_SERVER', 'manage roles': 'MANAGE_ROLES', kick: 'KICK', ban: 'BAN', 'manage messages': 'MANAGE_MESSAGES', 'mention everyone': 'MENTION_EVERYONE', 'attach files': 'ATTACH', admin: 'ADMIN', view: 'VIEW' }, biLastProps: { 'bot name': 'alias name', 'bot avatar': 'alias avatar', 'bot name unmarked?': 'alias unmarked?', verified: 'server says verified' } };
+  const MENU_WORDS = { biInstanceProps: { icon: 'icon url', build: 'build id', 'build date': 'built at', accounts: 'accounts mode', 'who can join': 'join policy', 'server name': 'community name', 'server id': 'community id', plan: 'hosting plan', 'upload limit (MB)': 'max upload MB' }, bfPermissions: { 'send messages': 'SEND', 'manage channels': 'MANAGE_CHANNELS', 'manage server': 'MANAGE_SERVER', 'manage roles': 'MANAGE_ROLES', kick: 'KICK', ban: 'BAN', 'manage messages': 'MANAGE_MESSAGES', 'mention everyone': 'MENTION_EVERYONE', 'attach files': 'ATTACH', admin: 'ADMIN', view: 'VIEW', 'manage users': 'MANAGE_USERS', 'unmarked aliases': 'UNMARKED_ALIASES' }, biLastProps: { 'bot name': 'alias name', 'bot avatar': 'alias avatar', 'bot name unmarked?': 'alias unmarked?', verified: 'server says verified' } };
   for (const block of veloraExt.getInfo().blocks) {
     const inputs = Object.entries(block?.arguments || {}).filter(([, arg]) => MENU_WORDS[arg.menu]);
     if (!inputs.length) continue;
